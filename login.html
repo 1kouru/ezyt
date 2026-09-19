@@ -130,6 +130,10 @@
             <label for="registerUsername">Ник</label>
             <input type="text" id="registerUsername" name="ezyt-nick-new" placeholder="username" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required minlength="2" readonly>
           </div>
+          <div class="auth-field">
+            <label for="registerEmail">Email</label>
+            <input type="email" id="registerEmail" name="ezyt-email-new" placeholder="email@example.com" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required>
+          </div>
           <div class="auth-field auth-field-pw-wrap">
             <label for="registerPassword">Пароль</label>
             <input type="password" id="registerPassword" name="ezyt-pw-new" placeholder="******" autocomplete="off" required minlength="6">
@@ -209,11 +213,12 @@
       document.getElementById('formRegister').addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('registerUsername').value.trim();
+        const email = document.getElementById('registerEmail').value.trim();
         const password = document.getElementById('registerPassword').value;
         const err = document.getElementById('registerError');
         err.textContent = '';
         setBusy(e.target, true);
-        const result = await Auth.register(username, password);
+        const result = await Auth.register(username, email, password);
         setBusy(e.target, false);
         if (!result.ok) { err.textContent = result.message; return; }
         window.location.replace('index.html');

@@ -1,19 +1,29 @@
 /* ==========================================================================
    ezyt — авторизация через Supabase (реальная база данных).
-   Снаружи по-прежнему только ник + пароль, без почты — под капотом ник
-   превращается в служебный email вида "ник@ezyt.local" для Supabase Auth.
+   Вход — по нику и паролю; email собирается только при регистрации и
+   хранится приватно в profiles. Для самого Supabase Auth используется
+   отдельный служебный email на основе ника (см. authEmailFor) — так вход
+   остаётся по нику, а лимит на письма подтверждения не расходуется зря.
    ========================================================================== */
 
 window.Auth = (function () {
   'use strict';
 
-  const EMAIL_DOMAIN = '@ezyt-users.app';
-  let cachedUser = null; // { id, username }
+  // Supabase Auth привязан к email, но у нас логин по нику — поэтому у каждого
+  // аккаунта два email: служебный (ник + этот домен, только для входа) и
+  // настоящий, который пользователь вводит при регистрации и который лежит
+  // приватно в profiles (виден только самому владельцу через RLS).
+  const AUTH_EMAIL_DOMAIN = '@ezyt-users.app';
+  let cachedUser = null; // { id, username, email }
 
-  function emailFor(username) { return username.trim().toLowerCase() + EMAIL_DOMAIN; }
+  function authEmailFor(username) { return username.trim().toLowerCase() + AUTH_EMAIL_DOMAIN; }
 
   function validateUsername(username) {
     if (!username || username.trim().length < 2) return 'Ник — минимум 2 символа';
+    return null;
+  }
+  function validateEmail(email) {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'Введи корректный email';
     return null;
   }
   function validatePassword(password) {
@@ -21,10 +31,10 @@ window.Auth = (function () {
     return null;
   }
 
-  async function fetchUsername(id) {
-    const { data, error } = await sb.from('profiles').select('username').eq('id', id).single();
+  async function fetchProfile(id) {
+    const { data, error } = await sb.from('profiles').select('username, email').eq('id', id).single();
     if (error || !data) return null;
-    return data.username;
+    return data;
   }
 
   // остальной код (index.html/app.js) может дождаться Auth.ready перед
@@ -37,8 +47,8 @@ window.Auth = (function () {
       const { data } = await sb.auth.getSession();
       const session = data && data.session;
       if (session && session.user) {
-        const username = await fetchUsername(session.user.id);
-        if (username) cachedUser = { id: session.user.id, username };
+        const profile = await fetchProfile(session.user.id);
+        if (profile) cachedUser = { id: session.user.id, username: profile.username, email: profile.email };
       }
     } catch (e) {}
     readyResolve();
@@ -49,38 +59,41 @@ window.Auth = (function () {
   function currentUser() { return cachedUser; }
 
   async function usernameTaken(username, excludeId) {
-    const { data, error } = await sb.from('profiles').select('id').ilike('username', username);
-    if (error || !data) return false;
-    return data.some((row) => row.id !== excludeId);
+    const { data, error } = await sb.rpc('is_username_taken', { check_username: username, exclude_id: excludeId || null });
+    if (error) return false;
+    return !!data;
   }
 
-  async function register(username, password) {
+  async function register(username, email, password) {
     username = (username || '').trim();
+    email = (email || '').trim();
     const uErr = validateUsername(username);
     if (uErr) return { ok: false, message: uErr };
+    const eErr = validateEmail(email);
+    if (eErr) return { ok: false, message: eErr };
     const pErr = validatePassword(password);
     if (pErr) return { ok: false, message: pErr };
 
     if (await usernameTaken(username)) return { ok: false, message: 'Такой ник уже занят' };
 
-    const { data, error } = await sb.auth.signUp({ email: emailFor(username), password });
+    const { data, error } = await sb.auth.signUp({ email: authEmailFor(username), password });
     if (error) return { ok: false, message: 'Не удалось создать аккаунт: ' + error.message };
     if (!data.user) return { ok: false, message: 'Не удалось создать аккаунт' };
 
-    const { error: profileError } = await sb.from('profiles').insert({ id: data.user.id, username });
-    if (profileError) return { ok: false, message: 'Не удалось сохранить ник: ' + profileError.message };
+    const { error: profileError } = await sb.from('profiles').insert({ id: data.user.id, username, email });
+    if (profileError) return { ok: false, message: 'Не удалось сохранить профиль: ' + profileError.message };
 
-    cachedUser = { id: data.user.id, username };
+    cachedUser = { id: data.user.id, username, email };
     return { ok: true };
   }
 
   async function login(username, password) {
     username = (username || '').trim();
     if (!username || !password) return { ok: false, message: 'Заполни оба поля' };
-    const { data, error } = await sb.auth.signInWithPassword({ email: emailFor(username), password });
+    const { data, error } = await sb.auth.signInWithPassword({ email: authEmailFor(username), password });
     if (error || !data.user) return { ok: false, message: 'Неверный ник или пароль' };
-    const realUsername = await fetchUsername(data.user.id);
-    cachedUser = { id: data.user.id, username: realUsername || username };
+    const profile = await fetchProfile(data.user.id);
+    cachedUser = { id: data.user.id, username: (profile && profile.username) || username, email: profile && profile.email };
     return { ok: true };
   }
 
@@ -110,7 +123,7 @@ window.Auth = (function () {
     if (!cachedUser) return { ok: false, message: 'Не авторизован' };
     const pErr = validatePassword(newPassword);
     if (pErr) return { ok: false, message: pErr };
-    const { error: reauthError } = await sb.auth.signInWithPassword({ email: emailFor(cachedUser.username), password: currentPassword });
+    const { error: reauthError } = await sb.auth.signInWithPassword({ email: authEmailFor(cachedUser.username), password: currentPassword });
     if (reauthError) return { ok: false, message: 'Неверный текущий пароль' };
     const { error } = await sb.auth.updateUser({ password: newPassword });
     if (error) return { ok: false, message: 'Не удалось изменить пароль' };

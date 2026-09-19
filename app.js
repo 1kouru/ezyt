@@ -287,13 +287,16 @@
     if (error) { showToast('Не удалось загрузить заметки', 'warn'); notes = []; return; }
     notes = (data || []).map(rowToNote);
   }
+  function noteDataPart(n) {
+    return { text: n.text, rich: !!n.rich, color: n.color, x: n.x, y: n.y, w: n.w, h: n.h };
+  }
   async function insertNoteRow(n) {
     const user = Auth.currentUser();
-    const { error } = await sb.from('notes').insert({ id: n.id, workspace_id: activeWorkspaceId, user_id: user.id, data: { text: n.text, color: n.color, x: n.x, y: n.y } });
+    const { error } = await sb.from('notes').insert({ id: n.id, workspace_id: activeWorkspaceId, user_id: user.id, data: noteDataPart(n) });
     if (error) showToast('Не удалось сохранить заметку', 'warn');
   }
   async function updateNoteRow(n) {
-    const { error } = await sb.from('notes').update({ data: { text: n.text, color: n.color, x: n.x, y: n.y } }).eq('id', n.id);
+    const { error } = await sb.from('notes').update({ data: noteDataPart(n) }).eq('id', n.id);
     if (error) showToast('Не удалось сохранить заметку', 'warn');
   }
   async function deleteNoteRow(id) {
@@ -540,37 +543,48 @@
   }
 
   // ------------------------------------------------------------------ заметки
-  // На ПК заметки — свободно перетаскиваемые карточки прямо на холсте
-  // (нельзя бросить поверх карточки ролика — проверяем пересечение по факту
-  // и, если не влезло, откатываем на прежнее место). На телефоне (без
-  // панорамирования) — простым списком внизу, без позиционирования.
+  // На ПК заметки — свободно перетаскиваемые карточки прямо на холсте, тащить
+  // можно взявшись за любое место карточки (кроме крестика/ручек размера) —
+  // редактирование текста включается двойным кликом, чтобы одиночный клик+
+  // перетаскивание не превращался в случайный ввод текста. Нельзя бросить
+  // заметку поверх карточки ролика — проверяем пересечение и откатываем,
+  // если не влезло. На телефоне (без панорамирования) — простым списком
+  // внизу, там текст всегда сразу редактируемый, как обычное поле.
 
   const notesLayer = document.getElementById('notesLayer');
   const notesGrid = document.getElementById('notesGrid');
   const notesCountEl = document.getElementById('notesCount');
   let isFirstNotesRender = true;
+  try { document.execCommand('defaultParagraphSeparator', false, 'div'); } catch (e) {}
+
+  const RESIZE_CORNERS = ['nw', 'ne', 'sw', 'se'];
+
+  function noteBodyHtml(n) {
+    // rich === true — текст уже сохранён как готовый HTML (умная вставка
+    // разложила его на заголовок+список или это просто набранный текст),
+    // иначе (старые заметки) — сырой текст, просто переносим строки
+    if (n.rich) return n.text || '';
+    return escapeHtml(n.text || '').replace(/\n/g, '<br>');
+  }
 
   function noteHtml(n, mobile, enterDelay) {
     const styleParts = [`--note-c:var(--${n.color || 'blue'})`];
-    if (!mobile) styleParts.push(`left:${Math.round(n.x || 0)}px`, `top:${Math.round(n.y || 0)}px`);
+    if (!mobile) {
+      styleParts.push(`left:${Math.round(n.x || 0)}px`, `top:${Math.round(n.y || 0)}px`);
+      if (n.w) styleParts.push(`width:${Math.round(n.w)}px`);
+    }
     if (enterDelay != null) styleParts.push(`animation-delay:${enterDelay}ms`);
-    const gripHtml = mobile ? '' : `<span class="note-grip"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></span>`;
+    const textStyle = (!mobile && n.h) ? ` style="min-height:${Math.round(n.h)}px"` : '';
+    const resizeHtml = mobile ? '' : RESIZE_CORNERS.map((c) => `<span class="note-resize-handle ${c}" data-resize="${c}"></span>`).join('');
     return `
       <article class="note-card${isFirstNotesRender ? ' note-enter' : ''}" data-id="${n.id}" style="${styleParts.join(';')}">
-        <div class="note-drag-handle" data-role="drag">
-          ${gripHtml}
-          <span class="note-saved" data-role="saved">✓ сохранено</span>
-          <button class="note-delete" data-action="delete-note" title="Удалить заметку">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
-          </button>
-        </div>
-        <textarea class="note-text" data-role="text" placeholder="Заметка…">${escapeHtml(n.text || '')}</textarea>
+        <button class="note-delete" data-action="delete-note" title="Удалить заметку">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+        </button>
+        <span class="note-saved" data-role="saved">✓ сохранено</span>
+        <div class="note-text" data-role="text" contenteditable="${mobile ? 'true' : 'false'}" data-placeholder="Заметка — двойной клик, чтобы писать"${textStyle}>${noteBodyHtml(n)}</div>
+        ${resizeHtml}
       </article>`;
-  }
-
-  function autosizeNoteTextarea(el) {
-    el.style.height = 'auto';
-    el.style.height = Math.max(76, el.scrollHeight) + 'px';
   }
 
   function renderNotes() {
@@ -591,7 +605,6 @@
     notesCountEl.textContent = notes.length;
 
     const container = mobile ? notesGrid : notesLayer;
-    container.querySelectorAll('.note-text').forEach((ta) => autosizeNoteTextarea(ta));
     if (isFirstNotesRender) {
       container.querySelectorAll('.note-card.note-enter').forEach((el) => {
         el.addEventListener('animationend', () => el.classList.remove('note-enter'), { once: true });
@@ -633,30 +646,91 @@
     return candidate;
   }
 
-  function createNewNote() {
+  // ---- вход/выход из режима редактирования (только карточки на холсте —
+  // на телефоне текст всегда редактируемый) ----
+
+  function enterNoteEditMode(card) {
+    const textEl = card.querySelector('.note-text');
+    if (!textEl || textEl.isContentEditable) return;
+    textEl.setAttribute('contenteditable', 'true');
+    card.classList.add('is-editing');
+    textEl.focus();
+    // сразу выделяем весь текст — удобно перепечатать или вставить поверх,
+    // не выделяя руками
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  function exitNoteEditMode(card) {
+    const textEl = card.querySelector('.note-text');
+    if (!textEl) return;
+    textEl.setAttribute('contenteditable', 'false');
+    card.classList.remove('is-editing');
+    window.getSelection().removeAllRanges();
+    const id = card.dataset.id;
+    const n = notes.find((x) => x.id === id);
+    if (n) {
+      n.text = textEl.innerHTML;
+      n.rich = true;
+      updateNoteRow(n);
+    }
+  }
+
+  function createNewNote(atX, atY) {
     const mobile = isMobileLayout();
     let x = 0, y = 0;
     if (!mobile) {
-      const rect = viewport.getBoundingClientRect();
-      const center = viewportToLocal(rect.left + rect.width / 2, rect.top + rect.height / 2);
-      const spot = findFreeSpot(center.x - 110, center.y - 65, 220, 130);
+      let cx, cy;
+      if (atX != null) { cx = atX - 130; cy = atY - 75; }
+      else {
+        const rect = viewport.getBoundingClientRect();
+        const center = viewportToLocal(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        cx = center.x - 130; cy = center.y - 75;
+      }
+      const spot = findFreeSpot(cx, cy, 260, 150);
       x = spot.x; y = spot.y;
     }
-    const n = { id: noteUid(), text: '', color: GROUP_COLORS[notes.length % GROUP_COLORS.length], x, y, createdAt: Date.now() };
+    const n = { id: noteUid(), text: '', rich: false, color: GROUP_COLORS[notes.length % GROUP_COLORS.length], x, y, createdAt: Date.now() };
     notes.push(n);
     insertNoteRow(n);
     AudioFX.add();
     renderNotes();
     const container = mobile ? notesGrid : notesLayer;
-    const ta = container.querySelector(`.note-card[data-id="${n.id}"] .note-text`);
-    if (ta) ta.focus();
+    const card = container.querySelector(`.note-card[data-id="${n.id}"]`);
+    if (!card) return;
+    if (mobile) { const el = card.querySelector('.note-text'); if (el) el.focus(); }
+    else enterNoteEditMode(card);
   }
-  document.getElementById('addNoteBtn').addEventListener('click', createNewNote);
+  document.getElementById('addNoteBtn').addEventListener('click', () => createNewNote());
 
-  const saveNoteText = debounce((id, text) => {
+  // двойной клик по пустому месту холста — заметка появляется прямо там,
+  // без лишнего шага "создать и потом тащить куда нужно"
+  viewport.addEventListener('dblclick', (e) => {
+    if (isMobileLayout()) return;
+    const onRealControl = e.target.closest('button') || e.target.closest('a') || e.target.closest('input')
+      || e.target.closest('textarea') || e.target.closest('.custom-select') || e.target.closest('.card') || e.target.closest('.note-card');
+    if (onRealControl) return;
+    const local = viewportToLocal(e.clientX, e.clientY);
+    createNewNote(local.x, local.y);
+  });
+
+  function formatPastedNoteText(raw) {
+    const lines = raw.replace(/\r\n/g, '\n').split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+    if (lines.length === 0) return '';
+    if (lines.length === 1) return escapeHtml(lines[0]);
+    const [heading, ...rest] = lines;
+    const headingHtml = `<div class="note-heading">${escapeHtml(heading)}</div>`;
+    const listHtml = rest.map((l) => `<div class="note-list-item">${escapeHtml(l)}</div>`).join('');
+    return headingHtml + listHtml;
+  }
+
+  const saveNoteText = debounce((id, html) => {
     const n = notes.find((x) => x.id === id);
     if (!n) return;
-    n.text = text;
+    n.text = html;
+    n.rich = true;
     updateNoteRow(n);
     const card = (isMobileLayout() ? notesGrid : notesLayer).querySelector(`.note-card[data-id="${id}"]`);
     const savedDot = card && card.querySelector('[data-role="saved"]');
@@ -668,11 +742,35 @@
 
   function wireNotesDelegation(container) {
     container.addEventListener('input', (e) => {
-      const ta = e.target.closest('.note-text');
-      if (!ta) return;
-      autosizeNoteTextarea(ta);
-      const card = ta.closest('.note-card');
-      saveNoteText(card.dataset.id, ta.value);
+      const el = e.target.closest('.note-text');
+      if (!el) return;
+      const card = el.closest('.note-card');
+      saveNoteText(card.dataset.id, el.innerHTML);
+    });
+
+    container.addEventListener('paste', (e) => {
+      const el = e.target.closest('.note-text');
+      if (!el) return;
+      e.preventDefault();
+      const raw = (e.clipboardData || window.clipboardData).getData('text/plain');
+      const html = formatPastedNoteText(raw);
+      document.execCommand('insertHTML', false, html);
+    });
+
+    // клик выходит из режима редактирования, если кликнули мимо текста
+    // (мимо самой заметки блюр контейнера сработает сам собой)
+    container.addEventListener('focusout', (e) => {
+      const el = e.target.closest('.note-text');
+      if (!el || el.isContentEditable === false) return;
+      const card = el.closest('.note-card');
+      if (card && !isMobileLayout()) exitNoteEditMode(card);
+    });
+
+    container.addEventListener('dblclick', (e) => {
+      if (isMobileLayout()) return;
+      if (e.target.closest('.note-delete') || e.target.closest('.note-resize-handle')) return;
+      const card = e.target.closest('.note-card');
+      if (card) enterNoteEditMode(card);
     });
 
     container.addEventListener('click', async (e) => {
@@ -698,17 +796,38 @@
   wireNotesDelegation(notesGrid);
   wireNotesDelegation(notesLayer);
 
-  // ---- перетаскивание заметок на холсте (только ПК/планшет) ----
+  // ---- перетаскивание и изменение размера заметок на холсте (только ПК) ----
 
   let noteDrag = null;
+  let noteResize = null;
 
   notesLayer.addEventListener('pointerdown', (e) => {
     if (isMobileLayout()) return;
     if (e.target.closest('.note-delete')) return;
-    const handle = e.target.closest('.note-drag-handle');
-    if (!handle) return;
-    const card = handle.closest('.note-card');
+
+    const rHandle = e.target.closest('.note-resize-handle');
+    if (rHandle) {
+      const card = rHandle.closest('.note-card');
+      if (!card) return;
+      e.preventDefault(); e.stopPropagation();
+      const textEl = card.querySelector('.note-text');
+      noteResize = {
+        id: card.dataset.id, el: card, textEl, corner: rHandle.dataset.resize,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startW: card.getBoundingClientRect().width / scale,
+        startH: textEl.getBoundingClientRect().height / scale,
+        startLeft: parseFloat(card.style.left) || 0,
+        startTop: parseFloat(card.style.top) || 0,
+      };
+      card.classList.add('is-resizing');
+      try { card.setPointerCapture(e.pointerId); } catch (err) {}
+      return;
+    }
+
+    const card = e.target.closest('.note-card');
     if (!card) return;
+    const textEl = card.querySelector('.note-text');
+    if (textEl && textEl.isContentEditable) return; // сейчас пишем текст — не тащим карточку
     e.preventDefault();
     e.stopPropagation();
     noteDrag = {
@@ -726,6 +845,22 @@
   });
 
   document.addEventListener('pointermove', (e) => {
+    if (noteResize) {
+      const dx = (e.clientX - noteResize.startClientX) / scale;
+      const dy = (e.clientY - noteResize.startClientY) / scale;
+      const { startW, startH, startLeft, startTop, corner } = noteResize;
+      let w = startW, h = startH, left = startLeft, top = startTop;
+      if (corner.includes('e')) w = Math.max(190, startW + dx);
+      if (corner.includes('w')) { w = Math.max(190, startW - dx); left = startLeft + (startW - w); }
+      if (corner.includes('s')) h = Math.max(60, startH + dy);
+      if (corner.includes('n')) { h = Math.max(60, startH - dy); top = startTop + (startH - h); }
+      noteResize.el.style.width = w + 'px';
+      noteResize.el.style.left = left + 'px';
+      noteResize.el.style.top = top + 'px';
+      noteResize.textEl.style.minHeight = h + 'px';
+      return;
+    }
+
     if (!noteDrag) return;
     noteDrag.moved = true;
     const local = viewportToLocal(e.clientX - noteDrag.offsetX, e.clientY - noteDrag.offsetY);
@@ -738,8 +873,22 @@
     noteDrag.el.classList.toggle('is-invalid-drop', overlapping);
   });
 
+  function endNoteResize(e) {
+    const { el, textEl, id } = noteResize;
+    el.classList.remove('is-resizing');
+    try { el.releasePointerCapture(e.pointerId); } catch (err) {}
+    const n = notes.find((x) => x.id === id);
+    if (n) {
+      n.w = parseFloat(el.style.width) || undefined;
+      n.h = parseFloat(textEl.style.minHeight) || undefined;
+      n.x = parseFloat(el.style.left) || 0;
+      n.y = parseFloat(el.style.top) || 0;
+      updateNoteRow(n);
+    }
+    noteResize = null;
+  }
+
   function endNoteDrag(e) {
-    if (!noteDrag) return;
     const { el, id, invalid, moved, startLeft, startTop } = noteDrag;
     el.classList.remove('is-dragging');
     try { el.releasePointerCapture(e.pointerId); } catch (err) {}
@@ -762,8 +911,15 @@
       }
     }
   }
-  document.addEventListener('pointerup', endNoteDrag);
-  document.addEventListener('pointercancel', endNoteDrag);
+
+  document.addEventListener('pointerup', (e) => {
+    if (noteResize) endNoteResize(e);
+    else if (noteDrag) endNoteDrag(e);
+  });
+  document.addEventListener('pointercancel', (e) => {
+    if (noteResize) endNoteResize(e);
+    else if (noteDrag) endNoteDrag(e);
+  });
 
   // ------------------------------------------------------------------ клики по карточкам (делегирование)
 

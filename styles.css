@@ -518,24 +518,23 @@ body {
   .notes-layer { display: none; }
   .zone-notes-mobile { display: flex; }
   section.zone-notes-mobile { display: block; }
-  .note-grip { display: none; }
 }
 
 .notes-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px;
   align-items: start;
 }
 
 .note-card {
   --note-c: var(--blue);
   position: relative; background: var(--card-bg);
-  border: 1px solid var(--border); border-top: 2px solid var(--note-c);
-  border-radius: var(--radius-md); padding: 0 14px 14px;
+  border: 1px solid var(--border); border-top: 3px solid var(--note-c);
+  border-radius: var(--radius-md); padding: 16px 16px 16px;
   transition: transform .3s var(--ease-bounce), box-shadow .3s var(--ease-smooth), border-color .25s ease, opacity .22s ease;
 }
 .notes-layer .note-card {
-  position: absolute; width: 220px; pointer-events: auto;
-  box-shadow: 0 10px 26px rgba(0,0,0,.35);
+  position: absolute; width: 260px; pointer-events: auto;
+  box-shadow: 0 10px 26px rgba(0,0,0,.35); cursor: grab;
 }
 .note-card:hover {
   box-shadow: 0 12px 30px color-mix(in srgb, var(--note-c) 16%, transparent);
@@ -545,31 +544,41 @@ body {
 .note-card.note-enter { animation: cardIn .5s var(--ease-bounce) both; }
 .note-card.note-leaving { animation: noteOut .22s var(--ease-smooth) both; }
 .notes-layer .note-card.is-dragging {
-  transition: none; z-index: 30;
+  transition: none; z-index: 30; cursor: grabbing;
   box-shadow: 0 22px 50px rgba(0,0,0,.5), 0 0 0 2px var(--note-c);
 }
 .notes-layer .note-card.is-invalid-drop { box-shadow: 0 22px 50px rgba(255,80,80,.3), 0 0 0 2px #ff6f6f; }
 .notes-layer .note-card.is-reverting { transition: left .32s var(--ease-bounce), top .32s var(--ease-bounce); }
+.notes-layer .note-card.is-resizing { transition: none; }
+/* в режиме редактирования курсор карточки — текстовый, не "рука", и заметен
+   акцентный контур, чтобы было ясно: сейчас пишем, а не двигаем */
+.notes-layer .note-card.is-editing {
+  cursor: text;
+  box-shadow: 0 0 0 2px var(--note-c), 0 16px 34px color-mix(in srgb, var(--note-c) 20%, transparent);
+}
 @keyframes noteOut {
   from { opacity: 1; transform: scale(1); }
   to { opacity: 0; transform: scale(.9) translateY(-6px); }
 }
 
-.note-drag-handle { display: flex; align-items: center; gap: 4px; height: 32px; margin: 0 -14px; padding: 0 8px 0 12px; }
-.notes-layer .note-drag-handle { cursor: grab; }
-.notes-layer .note-card.is-dragging .note-drag-handle { cursor: grabbing; }
-.note-grip { margin-right: auto; color: var(--text-faint); opacity: .55; display: flex; align-items: center; }
-
 .note-text {
-  width: 100%; min-height: 76px; resize: none; overflow: hidden;
-  border: none; background: transparent; outline: none;
-  font-family: var(--font); font-size: 13.5px; font-weight: 500; line-height: 1.5;
-  color: var(--text); padding: 0;
+  width: 100%; min-height: 130px; outline: none;
+  font-family: var(--font); font-size: 14.5px; font-weight: 500; line-height: 1.55;
+  color: var(--text); white-space: pre-wrap; word-wrap: break-word; cursor: inherit;
 }
-.note-text::placeholder { color: var(--text-faint); }
+.notes-layer .note-text[contenteditable="true"] { cursor: text; }
+.note-text:empty:before { content: attr(data-placeholder); color: var(--text-faint); pointer-events: none; }
+
+/* умное форматирование при вставке многострочного текста: первая строка —
+   заголовок, остальные — список с цветным маркером в цвет заметки */
+.note-heading { font-weight: 800; font-size: 14.5px; color: var(--text); margin: 0 0 9px; letter-spacing: -0.01em; line-height: 1.35; }
+.note-list-item { position: relative; padding-left: 15px; margin: 0 0 6px; font-size: 13px; font-weight: 450; color: var(--text-dim); line-height: 1.5; }
+.note-list-item::before { content: ''; position: absolute; left: 0; top: .58em; width: 5px; height: 5px; border-radius: 50%; background: var(--note-c); }
+.note-list-item:last-child { margin-bottom: 0; }
 
 .note-delete {
-  width: 22px; height: 22px; border-radius: 50%; border: none; flex-shrink: 0;
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 24px; height: 24px; border-radius: 50%; border: none;
   background: var(--bg-elevated); color: var(--text-faint);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   opacity: 0; transform: scale(.7); pointer-events: none;
@@ -579,16 +588,31 @@ body {
 .note-delete:hover { color: #ff6f6f; background: rgba(255,111,111,.14); }
 .note-delete:active { transform: scale(.85); }
 
-/* плашка "сохранено" — в общей шапке рядом с крестиком, гаснет через секунду */
+/* плашка "сохранено" всплывает над карточкой и гаснет */
 .note-saved {
-  display: flex; align-items: center; white-space: nowrap; margin-right: 4px;
-  padding: 3px 9px; border-radius: 20px;
+  position: absolute; top: -10px; left: 50%; z-index: 3;
+  display: flex; align-items: center; white-space: nowrap;
+  padding: 3px 10px; border-radius: 20px;
   background: var(--note-c); color: #06070a;
-  font-family: var(--font); font-size: 9.5px; font-weight: 800; letter-spacing: .02em;
-  opacity: 0; pointer-events: none; transform: scale(.85);
+  font-family: var(--font); font-size: 10px; font-weight: 800; letter-spacing: .02em;
+  opacity: 0; pointer-events: none;
+  transform: translate(-50%, 4px) scale(.9);
   transition: opacity .2s ease, transform .25s var(--ease-bounce);
 }
-.note-saved.is-flash { opacity: 1; transform: scale(1); }
+.note-saved.is-flash { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
+/* ручки изменения размера — по всем четырём углам, видны при наведении */
+.note-resize-handle {
+  position: absolute; width: 14px; height: 14px; z-index: 4;
+  opacity: 0; transition: opacity .2s ease, background .2s ease;
+  border-radius: 50%; background: var(--note-c);
+}
+.note-card:hover .note-resize-handle { opacity: .45; }
+.note-resize-handle:hover { opacity: 1 !important; }
+.note-resize-handle.nw { top: -6px; left: -6px; cursor: nwse-resize; }
+.note-resize-handle.ne { top: -6px; right: -6px; cursor: nesw-resize; }
+.note-resize-handle.sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.note-resize-handle.se { bottom: -6px; right: -6px; cursor: nwse-resize; }
 
 .note-card--add {
   background: transparent; border: 1.5px dashed var(--border-strong); border-top: 1.5px dashed var(--border-strong);
@@ -908,10 +932,24 @@ body {
 .color-swatch:hover { transform: scale(1.15); }
 .color-swatch.is-selected { border-color: var(--text); transform: scale(1.15); }
 
-/* ---------------------------------- Zoom controls ---------------------------------- */
+/* ---------------------------------- Zoom controls + заметка ---------------------------------- */
+
+.canvas-fabs {
+  position: fixed; right: 20px; bottom: 20px; z-index: 15;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+
+.note-fab {
+  width: 46px; height: 46px; border-radius: 50%; border: none; flex-shrink: 0;
+  background: var(--grad-accent); color: #060709; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 22px rgba(120,150,255,0.35);
+  transition: transform .25s var(--ease-bounce), box-shadow .25s ease;
+}
+.note-fab:hover { transform: scale(1.08) translateY(-2px); box-shadow: 0 10px 28px rgba(120,150,255,0.5); }
+.note-fab:active { transform: scale(.92); }
 
 .zoom-controls {
-  position: fixed; right: 20px; bottom: 20px; z-index: 15;
   display: flex; flex-direction: column; gap: 6px;
   background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 6px;
   box-shadow: var(--shadow);
@@ -1000,7 +1038,7 @@ body {
   }
   .canvas-dots { display: none; }
   .zone, .zone-divider { width: 100%; max-width: none; padding: 0 14px; box-sizing: border-box; }
-  .zoom-controls { display: none; }
+  .canvas-fabs { display: none; }
   .workspace-panel { width: 100%; }
 
   /* в один столбец карточкам не нужно выравниваться по высоте с соседями

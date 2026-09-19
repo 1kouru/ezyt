@@ -707,7 +707,7 @@
 
   // двойной клик по пустому месту холста — заметка появляется прямо там,
   // без лишнего шага "создать и потом тащить куда нужно"
-  viewport.addEventListener('dblclick', (e) => {
+  document.getElementById('viewport').addEventListener('dblclick', (e) => {
     if (isMobileLayout()) return;
     const onRealControl = e.target.closest('button') || e.target.closest('a') || e.target.closest('input')
       || e.target.closest('textarea') || e.target.closest('.custom-select') || e.target.closest('.card') || e.target.closest('.note-card');

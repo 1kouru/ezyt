@@ -161,6 +161,9 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
         <span>Новый ролик</span>
       </button>
+      <button id="addNoteBtn" class="icon-btn" aria-label="Добавить заметку" title="Добавить заметку на поле">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 4H15L19 8V20H6V4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M15 4V8H19" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 13H16M9 16.5H13.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
       <button id="helpBtn" class="icon-btn" aria-label="Как пользоваться" title="Как пользоваться">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M9.5 9.3C9.7 8 10.7 7 12.1 7C13.5 7 14.6 8 14.6 9.2C14.6 10.7 12.9 11 12.2 11.9C12 12.2 12 12.5 12 13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="16.3" r="1" fill="currentColor"/></svg>
       </button>
@@ -230,17 +233,20 @@
           <p class="empty-state" id="doneEmpty" hidden>Пока ничего не готово — но всё впереди</p>
         </section>
 
-        <div class="zone-divider">
+        <!-- на телефоне (без свободного холста) заметки — обычный список внизу -->
+        <div class="zone-divider zone-notes-mobile">
           <span>✎ заметки — что угодно, не привязано к роликам</span>
         </div>
-
-        <section class="zone zone-notes">
+        <section class="zone zone-notes-mobile">
           <div class="zone-head">
             <h2 class="zone-title">Заметки</h2>
             <span class="zone-count" id="notesCount">0</span>
           </div>
           <div class="notes-grid" id="notesGrid"></div>
         </section>
+
+        <!-- на ПК/планшете — свободно размещаемые заметки прямо на поле -->
+        <div class="notes-layer" id="notesLayer"></div>
       </div>
     </div>
   </main>

@@ -289,11 +289,11 @@
   }
   async function insertNoteRow(n) {
     const user = Auth.currentUser();
-    const { error } = await sb.from('notes').insert({ id: n.id, workspace_id: activeWorkspaceId, user_id: user.id, data: { text: n.text, color: n.color } });
+    const { error } = await sb.from('notes').insert({ id: n.id, workspace_id: activeWorkspaceId, user_id: user.id, data: { text: n.text, color: n.color, x: n.x, y: n.y } });
     if (error) showToast('Не удалось сохранить заметку', 'warn');
   }
   async function updateNoteRow(n) {
-    const { error } = await sb.from('notes').update({ data: { text: n.text, color: n.color } }).eq('id', n.id);
+    const { error } = await sb.from('notes').update({ data: { text: n.text, color: n.color, x: n.x, y: n.y } }).eq('id', n.id);
     if (error) showToast('Не удалось сохранить заметку', 'warn');
   }
   async function deleteNoteRow(id) {
@@ -540,53 +540,125 @@
   }
 
   // ------------------------------------------------------------------ заметки
+  // На ПК заметки — свободно перетаскиваемые карточки прямо на холсте
+  // (нельзя бросить поверх карточки ролика — проверяем пересечение по факту
+  // и, если не влезло, откатываем на прежнее место). На телефоне (без
+  // панорамирования) — простым списком внизу, без позиционирования.
 
+  const notesLayer = document.getElementById('notesLayer');
   const notesGrid = document.getElementById('notesGrid');
   const notesCountEl = document.getElementById('notesCount');
   let isFirstNotesRender = true;
 
-  function noteHtml(n, enterDelay) {
-    const styleAttr = `--note-c:var(--${n.color || 'blue'})` + (enterDelay != null ? `;animation-delay:${enterDelay}ms` : '');
+  function noteHtml(n, mobile, enterDelay) {
+    const styleParts = [`--note-c:var(--${n.color || 'blue'})`];
+    if (!mobile) styleParts.push(`left:${Math.round(n.x || 0)}px`, `top:${Math.round(n.y || 0)}px`);
+    if (enterDelay != null) styleParts.push(`animation-delay:${enterDelay}ms`);
+    const gripHtml = mobile ? '' : `<span class="note-grip"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="6" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg></span>`;
     return `
-      <article class="note-card${isFirstNotesRender ? ' note-enter' : ''}" data-id="${n.id}" style="${styleAttr}">
-        <button class="note-delete" data-action="delete-note" title="Удалить заметку">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
-        </button>
-        <span class="note-saved" data-role="saved">✓ сохранено</span>
+      <article class="note-card${isFirstNotesRender ? ' note-enter' : ''}" data-id="${n.id}" style="${styleParts.join(';')}">
+        <div class="note-drag-handle" data-role="drag">
+          ${gripHtml}
+          <span class="note-saved" data-role="saved">✓ сохранено</span>
+          <button class="note-delete" data-action="delete-note" title="Удалить заметку">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+          </button>
+        </div>
         <textarea class="note-text" data-role="text" placeholder="Заметка…">${escapeHtml(n.text || '')}</textarea>
       </article>`;
   }
 
   function autosizeNoteTextarea(el) {
     el.style.height = 'auto';
-    el.style.height = Math.max(90, el.scrollHeight) + 'px';
+    el.style.height = Math.max(76, el.scrollHeight) + 'px';
   }
 
   function renderNotes() {
-    const addTileHtml = `
-      <button type="button" class="note-card note-card--add" id="addNoteBtn" title="Добавить заметку">
-        <span class="plus-icon">+</span>
-        <span>Новая заметка</span>
-      </button>`;
-    notesGrid.innerHTML = notes.map((n, i) => noteHtml(n, isFirstNotesRender ? i * 45 : null)).join('') + addTileHtml;
+    const mobile = isMobileLayout();
+    const html = notes.map((n, i) => noteHtml(n, mobile, isFirstNotesRender ? i * 45 : null)).join('');
+    if (mobile) {
+      const addTileHtml = `
+        <button type="button" class="note-card note-card--add" data-action="add-note-tile" title="Добавить заметку">
+          <span class="plus-icon">+</span>
+          <span>Новая заметка</span>
+        </button>`;
+      notesGrid.innerHTML = html + addTileHtml;
+      notesLayer.innerHTML = '';
+    } else {
+      notesLayer.innerHTML = html;
+      notesGrid.innerHTML = '';
+    }
     notesCountEl.textContent = notes.length;
 
-    notesGrid.querySelectorAll('.note-text').forEach((ta) => autosizeNoteTextarea(ta));
-
+    const container = mobile ? notesGrid : notesLayer;
+    container.querySelectorAll('.note-text').forEach((ta) => autosizeNoteTextarea(ta));
     if (isFirstNotesRender) {
-      notesGrid.querySelectorAll('.note-card.note-enter').forEach((el) => {
+      container.querySelectorAll('.note-card.note-enter').forEach((el) => {
         el.addEventListener('animationend', () => el.classList.remove('note-enter'), { once: true });
       });
     }
     isFirstNotesRender = false;
   }
 
+  // ---- координаты: экран ↔ локальные координаты холста (та же математика,
+  // что и в setZoomAt — panX/panY/scale уже объявлены ниже, но замыкание
+  // видит их актуальное значение на момент вызова, а не объявления) ----
+
+  function viewportToLocal(clientX, clientY) {
+    const rect = viewport.getBoundingClientRect();
+    return { x: (clientX - rect.left - panX) / scale, y: (clientY - rect.top - panY) / scale };
+  }
+  function localRectFromEl(el) {
+    const rect = el.getBoundingClientRect();
+    const vrect = viewport.getBoundingClientRect();
+    return {
+      x: (rect.left - vrect.left - panX) / scale, y: (rect.top - vrect.top - panY) / scale,
+      w: rect.width / scale, h: rect.height / scale,
+    };
+  }
+  function rectsOverlapLocal(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  function rectsOverlapScreen(a, b) {
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  }
+  function findFreeSpot(x, y, w, h) {
+    const cardRects = Array.from(document.querySelectorAll('.card')).map(localRectFromEl);
+    let candidate = { x, y, w, h };
+    let attempts = 0;
+    while (cardRects.some((r) => rectsOverlapLocal(candidate, r)) && attempts < 24) {
+      attempts += 1;
+      candidate = { x: x + attempts * 34, y: y + attempts * 24, w, h };
+    }
+    return candidate;
+  }
+
+  function createNewNote() {
+    const mobile = isMobileLayout();
+    let x = 0, y = 0;
+    if (!mobile) {
+      const rect = viewport.getBoundingClientRect();
+      const center = viewportToLocal(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      const spot = findFreeSpot(center.x - 110, center.y - 65, 220, 130);
+      x = spot.x; y = spot.y;
+    }
+    const n = { id: noteUid(), text: '', color: GROUP_COLORS[notes.length % GROUP_COLORS.length], x, y, createdAt: Date.now() };
+    notes.push(n);
+    insertNoteRow(n);
+    AudioFX.add();
+    renderNotes();
+    const container = mobile ? notesGrid : notesLayer;
+    const ta = container.querySelector(`.note-card[data-id="${n.id}"] .note-text`);
+    if (ta) ta.focus();
+  }
+  document.getElementById('addNoteBtn').addEventListener('click', createNewNote);
+
   const saveNoteText = debounce((id, text) => {
     const n = notes.find((x) => x.id === id);
     if (!n) return;
     n.text = text;
     updateNoteRow(n);
-    const card = notesGrid.querySelector(`.note-card[data-id="${id}"]`);
+    const card = (isMobileLayout() ? notesGrid : notesLayer).querySelector(`.note-card[data-id="${id}"]`);
     const savedDot = card && card.querySelector('[data-role="saved"]');
     if (savedDot) {
       savedDot.classList.add('is-flash');
@@ -594,27 +666,19 @@
     }
   }, 500);
 
-  notesGrid.addEventListener('input', (e) => {
-    const ta = e.target.closest('.note-text');
-    if (!ta) return;
-    autosizeNoteTextarea(ta);
-    const card = ta.closest('.note-card');
-    saveNoteText(card.dataset.id, ta.value);
-  });
+  function wireNotesDelegation(container) {
+    container.addEventListener('input', (e) => {
+      const ta = e.target.closest('.note-text');
+      if (!ta) return;
+      autosizeNoteTextarea(ta);
+      const card = ta.closest('.note-card');
+      saveNoteText(card.dataset.id, ta.value);
+    });
 
-  notesGrid.addEventListener('click', async (e) => {
-    if (e.target.closest('#addNoteBtn')) {
-      const n = { id: noteUid(), text: '', color: GROUP_COLORS[notes.length % GROUP_COLORS.length], createdAt: Date.now() };
-      notes.push(n);
-      insertNoteRow(n);
-      AudioFX.add();
-      renderNotes();
-      const newCard = notesGrid.querySelector(`.note-card[data-id="${n.id}"] .note-text`);
-      if (newCard) newCard.focus();
-      return;
-    }
-    const delBtn = e.target.closest('[data-action="delete-note"]');
-    if (delBtn) {
+    container.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-action="add-note-tile"]')) { createNewNote(); return; }
+      const delBtn = e.target.closest('[data-action="delete-note"]');
+      if (!delBtn) return;
       const card = delBtn.closest('.note-card');
       const id = card.dataset.id;
       const n = notes.find((x) => x.id === id);
@@ -629,8 +693,77 @@
         deleteNoteRow(id);
         renderNotes();
       }, 220);
-    }
+    });
+  }
+  wireNotesDelegation(notesGrid);
+  wireNotesDelegation(notesLayer);
+
+  // ---- перетаскивание заметок на холсте (только ПК/планшет) ----
+
+  let noteDrag = null;
+
+  notesLayer.addEventListener('pointerdown', (e) => {
+    if (isMobileLayout()) return;
+    if (e.target.closest('.note-delete')) return;
+    const handle = e.target.closest('.note-drag-handle');
+    if (!handle) return;
+    const card = handle.closest('.note-card');
+    if (!card) return;
+    e.preventDefault();
+    e.stopPropagation();
+    noteDrag = {
+      id: card.dataset.id,
+      el: card,
+      offsetX: e.clientX - card.getBoundingClientRect().left,
+      offsetY: e.clientY - card.getBoundingClientRect().top,
+      startLeft: parseFloat(card.style.left) || 0,
+      startTop: parseFloat(card.style.top) || 0,
+      moved: false,
+      invalid: false,
+    };
+    card.classList.add('is-dragging');
+    try { card.setPointerCapture(e.pointerId); } catch (err) {}
   });
+
+  document.addEventListener('pointermove', (e) => {
+    if (!noteDrag) return;
+    noteDrag.moved = true;
+    const local = viewportToLocal(e.clientX - noteDrag.offsetX, e.clientY - noteDrag.offsetY);
+    noteDrag.el.style.left = local.x + 'px';
+    noteDrag.el.style.top = local.y + 'px';
+
+    const dragRect = noteDrag.el.getBoundingClientRect();
+    const overlapping = Array.from(document.querySelectorAll('.card')).some((c) => rectsOverlapScreen(dragRect, c.getBoundingClientRect()));
+    noteDrag.invalid = overlapping;
+    noteDrag.el.classList.toggle('is-invalid-drop', overlapping);
+  });
+
+  function endNoteDrag(e) {
+    if (!noteDrag) return;
+    const { el, id, invalid, moved, startLeft, startTop } = noteDrag;
+    el.classList.remove('is-dragging');
+    try { el.releasePointerCapture(e.pointerId); } catch (err) {}
+    noteDrag = null;
+    if (!moved) return;
+
+    if (invalid) {
+      el.classList.add('is-reverting');
+      el.classList.remove('is-invalid-drop');
+      el.style.left = startLeft + 'px';
+      el.style.top = startTop + 'px';
+      setTimeout(() => el.classList.remove('is-reverting'), 320);
+      showToast('Нельзя разместить заметку поверх ролика', 'warn');
+    } else {
+      const n = notes.find((x) => x.id === id);
+      if (n) {
+        n.x = parseFloat(el.style.left) || 0;
+        n.y = parseFloat(el.style.top) || 0;
+        updateNoteRow(n);
+      }
+    }
+  }
+  document.addEventListener('pointerup', endNoteDrag);
+  document.addEventListener('pointercancel', endNoteDrag);
 
   // ------------------------------------------------------------------ клики по карточкам (делегирование)
 

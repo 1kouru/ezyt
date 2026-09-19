@@ -509,6 +509,18 @@ body {
 
 /* ---------------------------------- Заметки ---------------------------------- */
 
+/* ПК/планшет — свободный слой поверх холста, заметки позиционируются
+   через left/top в собственных координатах поля. Телефон (без панорамирования
+   и зума) — обычный список внизу, слой там не нужен и скрыт вовсе. */
+.notes-layer { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.zone-notes-mobile { display: none; }
+@media (max-width: 860px) {
+  .notes-layer { display: none; }
+  .zone-notes-mobile { display: flex; }
+  section.zone-notes-mobile { display: block; }
+  .note-grip { display: none; }
+}
+
 .notes-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px;
   align-items: start;
@@ -518,23 +530,38 @@ body {
   --note-c: var(--blue);
   position: relative; background: var(--card-bg);
   border: 1px solid var(--border); border-top: 2px solid var(--note-c);
-  border-radius: var(--radius-md); padding: 16px 14px 12px;
+  border-radius: var(--radius-md); padding: 0 14px 14px;
   transition: transform .3s var(--ease-bounce), box-shadow .3s var(--ease-smooth), border-color .25s ease, opacity .22s ease;
 }
+.notes-layer .note-card {
+  position: absolute; width: 220px; pointer-events: auto;
+  box-shadow: 0 10px 26px rgba(0,0,0,.35);
+}
 .note-card:hover {
-  transform: translateY(-4px);
   box-shadow: 0 12px 30px color-mix(in srgb, var(--note-c) 16%, transparent);
   border-color: var(--border-strong); border-top-color: var(--note-c);
 }
+.notes-grid .note-card:hover { transform: translateY(-4px); }
 .note-card.note-enter { animation: cardIn .5s var(--ease-bounce) both; }
 .note-card.note-leaving { animation: noteOut .22s var(--ease-smooth) both; }
+.notes-layer .note-card.is-dragging {
+  transition: none; z-index: 30;
+  box-shadow: 0 22px 50px rgba(0,0,0,.5), 0 0 0 2px var(--note-c);
+}
+.notes-layer .note-card.is-invalid-drop { box-shadow: 0 22px 50px rgba(255,80,80,.3), 0 0 0 2px #ff6f6f; }
+.notes-layer .note-card.is-reverting { transition: left .32s var(--ease-bounce), top .32s var(--ease-bounce); }
 @keyframes noteOut {
   from { opacity: 1; transform: scale(1); }
   to { opacity: 0; transform: scale(.9) translateY(-6px); }
 }
 
+.note-drag-handle { display: flex; align-items: center; gap: 4px; height: 32px; margin: 0 -14px; padding: 0 8px 0 12px; }
+.notes-layer .note-drag-handle { cursor: grab; }
+.notes-layer .note-card.is-dragging .note-drag-handle { cursor: grabbing; }
+.note-grip { margin-right: auto; color: var(--text-faint); opacity: .55; display: flex; align-items: center; }
+
 .note-text {
-  width: 100%; min-height: 90px; resize: none; overflow: hidden;
+  width: 100%; min-height: 76px; resize: none; overflow: hidden;
   border: none; background: transparent; outline: none;
   font-family: var(--font); font-size: 13.5px; font-weight: 500; line-height: 1.5;
   color: var(--text); padding: 0;
@@ -542,8 +569,7 @@ body {
 .note-text::placeholder { color: var(--text-faint); }
 
 .note-delete {
-  position: absolute; top: 10px; right: 10px; z-index: 2;
-  width: 24px; height: 24px; border-radius: 50%; border: none;
+  width: 22px; height: 22px; border-radius: 50%; border: none; flex-shrink: 0;
   background: var(--bg-elevated); color: var(--text-faint);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   opacity: 0; transform: scale(.7); pointer-events: none;
@@ -553,19 +579,16 @@ body {
 .note-delete:hover { color: #ff6f6f; background: rgba(255,111,111,.14); }
 .note-delete:active { transform: scale(.85); }
 
-/* плашка "сохранено" всплывает над карточкой и гаснет — не перекрывает
-   ни текст заметки, ни крестик удаления в углу */
+/* плашка "сохранено" — в общей шапке рядом с крестиком, гаснет через секунду */
 .note-saved {
-  position: absolute; top: -9px; left: 50%; z-index: 3;
-  display: flex; align-items: center; white-space: nowrap;
-  padding: 3px 10px; border-radius: 20px;
+  display: flex; align-items: center; white-space: nowrap; margin-right: 4px;
+  padding: 3px 9px; border-radius: 20px;
   background: var(--note-c); color: #06070a;
-  font-family: var(--font); font-size: 10px; font-weight: 800; letter-spacing: .02em;
-  opacity: 0; pointer-events: none;
-  transform: translate(-50%, 4px) scale(.9);
+  font-family: var(--font); font-size: 9.5px; font-weight: 800; letter-spacing: .02em;
+  opacity: 0; pointer-events: none; transform: scale(.85);
   transition: opacity .2s ease, transform .25s var(--ease-bounce);
 }
-.note-saved.is-flash { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.note-saved.is-flash { opacity: 1; transform: scale(1); }
 
 .note-card--add {
   background: transparent; border: 1.5px dashed var(--border-strong); border-top: 1.5px dashed var(--border-strong);

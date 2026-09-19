@@ -461,7 +461,7 @@
         <h3 class="card-title-de">${escapeHtml(v.titleRu)}</h3>
         <p class="card-title-ru">${escapeHtml(v.summaryRu || v.titleDe)}</p>
         <div class="card-bottom">
-          <span class="card-meta">~${estimateMinutes(v.script)} мин · ${wordCount(v.script).toLocaleString('ru-RU')} слов</span>
+          <span class="card-meta">~${estimateMinutes(v.script)} мин · ${wordCount(v.script).toLocaleString('ru-RU')} ${pluralRu(wordCount(v.script), 'слово', 'слова', 'слов')}</span>
         </div>
       </article>`;
   }
@@ -637,7 +637,7 @@
     modalThumbPrompt.textContent = v.thumbnailPrompt || '—';
     modalDescription.textContent = v.description || '—';
     modalScript.textContent = v.script || '—';
-    scriptEstimate.textContent = `~${wordCount(v.script).toLocaleString('ru-RU')} слов · ≈${estimateMinutes(v.script)} мин при обычном темпе`;
+    scriptEstimate.textContent = `~${wordCount(v.script).toLocaleString('ru-RU')} ${pluralRu(wordCount(v.script), 'слово', 'слова', 'слов')} · ≈${estimateMinutes(v.script)} мин при обычном темпе`;
     modalDoneCheckbox.checked = !!v.done;
 
     modalTags.innerHTML = (v.tags || []).map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('');

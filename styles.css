@@ -290,7 +290,7 @@ body {
 .segment-filter-trigger .grp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--grp-c, var(--text-faint)); flex-shrink: 0; }
 .custom-select-option .seg-count { margin-left: auto; opacity: .55; font-weight: 700; font-size: 10.5px; }
 
-.icon-btn.add-group-btn { width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; }
+.icon-btn.add-group-btn { width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0; }
 
 .stats {
   font-size: 12.5px; color: var(--text-faint); font-weight: 500;
@@ -871,11 +871,23 @@ body {
 /* ---------------------------------- Responsive ---------------------------------- */
 
 @media (max-width: 860px) {
-  .topbar { gap: 10px; }
+  .topbar {
+    gap: 10px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+    border-bottom-color: var(--border-strong);
+  }
+  .brand-logo { height: 34px; }
   .stats { display: none; }
   .search-wrap input { width: 100px; }
   .cards-grid { grid-template-columns: 1fr; }
   .segment-filter-select { max-width: 60vw; }
+
+  /* на чёрном фоне телефона тонкая рамка icon-btn почти не видна —
+     добавляем контраста, чтобы кнопки читались как кнопки, а не силуэты */
+  .icon-btn, .search-wrap, .segment-filter-select .custom-select-trigger {
+    background: var(--bg-elevated); border-color: var(--border-strong);
+  }
+  .icon-btn:active { background: var(--card-bg-hover); }
 
   /* На телефоне бескрайнее поле мешает — вместо перетаскивания/зума обычная
      вертикальная прокрутка, как на любой нормальной странице */
@@ -893,6 +905,12 @@ body {
   .zone, .zone-divider { width: 100%; max-width: none; padding: 0 14px; box-sizing: border-box; }
   .zoom-controls { display: none; }
   .workspace-panel { width: 100%; }
+
+  /* в один столбец карточкам не нужно выравниваться по высоте с соседями
+     в ряду — резерв места под 3+2 строки текста только раздувает пустоту */
+  .card-title-de { min-height: 0; }
+  .card-title-ru { min-height: 0; }
+  .card { padding: 16px 16px 18px; }
 
   /* microsoft-edge: — кастомная схема ссылки, на телефоне браузер не умеет
      её открыть и вместо этого либо ничего не делает, либо ломает переход —

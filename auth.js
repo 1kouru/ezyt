@@ -118,7 +118,7 @@ window.Auth = (function () {
 
   async function requireLogin() {
     await ready;
-    if (!isLoggedIn()) window.location.replace('login.html');
+    if (!isLoggedIn()) window.location.replace('/login/');
   }
 
   async function changeUsername(newUsername) {

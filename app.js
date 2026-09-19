@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Schicksal Studio (ezyt.) — логика приложения
+   ezyt. — логика приложения
    Хранение: Supabase (проекты, группы, ролики — с разделением по аккаунту
    через Row Level Security). localStorage остался только для мелких
    локальных настроек (звук, последний открытый проект в этом браузере).
@@ -29,7 +29,7 @@
   const SORT_OPTIONS = [
     { id: 'new', label: 'Новые сначала' },
     { id: 'old', label: 'Старые сначала' },
-    { id: 'az', label: 'По алфавиту (DE)' },
+    { id: 'az', label: 'По алфавиту (оригинал)' },
     { id: 'group', label: 'По группам' },
   ];
 
@@ -441,7 +441,7 @@
   function cardHtml(v, enterDelay) {
     const g = groupById(v.groupId) || groups[0] || { name: '—', color: 'blue' };
     const styleAttr = enterDelay != null ? `${grpStyle(g)};animation-delay:${enterDelay}ms` : grpStyle(g);
-    // заголовок на карточке — русский перевод крупным текстом, немецкий оригинал — мелкой подписью
+    // заголовок на карточке — русский перевод крупным текстом, оригинал — мелкой подписью
     return `
       <article class="card${isFirstRender ? ' card-enter' : ''}${v.done ? ' is-done' : ''}" data-id="${v.id}" style="${styleAttr}">
         <div class="card-top">
@@ -630,7 +630,7 @@
     modalSegmentBadge.setAttribute('style', grpStyle(g));
     modalDate.textContent = formatRelativeDate(v.createdAt);
     modalDate.title = formatDate(v.createdAt);
-    // в модалке — оба варианта заголовка, немецкий (рабочий) первым, ниже перевод
+    // в модалке — оба варианта заголовка, оригинал (рабочий) первым, ниже перевод
     modalTitleDe.textContent = v.titleDe;
     modalTitleRu.textContent = v.titleRu;
     modalSummary.textContent = v.summaryRu || '—';
@@ -1170,7 +1170,7 @@
     const ok = await showConfirm({ title: 'Выйти из аккаунта?', message: 'Все данные сохранены в аккаунте — при следующем входе (с любого устройства) они будут на месте.', confirmLabel: 'Выйти' });
     if (!ok) return;
     await Auth.logout();
-    window.location.href = 'login.html';
+    window.location.href = '/login/';
   });
 
   const settingsBackdrop = document.getElementById('settingsBackdrop');

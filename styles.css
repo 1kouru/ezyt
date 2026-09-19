@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Schicksal Studio — стили
+   ezyt. — стили
    Шрифт: Bricolage Grotesque (переменная толщина 200-800) — ближайший
    стильный вариативный гротеск к запрошенному "Gogh" (такого шрифта нет
    в открытых источниках), используется везде: заголовки жирнее, текст легче.
@@ -300,7 +300,7 @@ body {
 .stats b { color: var(--text-dim); font-weight: 700; }
 .stats .dot { opacity: .4; }
 
-.topbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
 
 .search-wrap {
   display: flex; align-items: center; gap: 7px;
@@ -893,6 +893,20 @@ body {
   .zone, .zone-divider { width: 100%; max-width: none; padding: 0 14px; box-sizing: border-box; }
   .zoom-controls { display: none; }
   .workspace-panel { width: 100%; }
+
+  /* microsoft-edge: — кастомная схема ссылки, на телефоне браузер не умеет
+     её открыть и вместо этого либо ничего не делает, либо ломает переход —
+     на мобильном оставляем только обычную ссылку на edge-tts.com ниже */
+  #ttsBtn { display: none; }
+
+  /* шапка модалки ролика — бейдж группы + дата слева, переключатель
+     "выполнено" + удалить + закрыть справа — на узком экране не помещаются
+     в одну строку и не должны обрезаться, крестик закрытия обязан
+     оставаться на виду и быть удобным для пальца */
+  .modal-head { flex-wrap: wrap; row-gap: 8px; }
+  .modal-head-actions { margin-left: auto; }
+  .done-toggle-text { display: none; }
+  .modal-close { flex-shrink: 0; width: 40px; height: 40px; }
 }
 
 @media (max-width: 480px) {
@@ -900,5 +914,9 @@ body {
   .segment-filter-wrap { order: 3; width: 100%; justify-content: center; }
   .segment-filter-select { max-width: 80vw; }
   .btn span { display: none; }
+  .btn { padding: 9px 12px; }
+  .search-wrap input { width: 72px; }
+  .icon-btn { width: 33px; height: 33px; }
+  .topbar-actions { gap: 6px; }
   .help-popover { right: 10px; left: 10px; width: auto; }
 }

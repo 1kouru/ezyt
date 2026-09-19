@@ -159,7 +159,7 @@
       </div>
       <button id="addBtn" class="btn btn-primary">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-        Новый ролик
+        <span>Новый ролик</span>
       </button>
       <button id="helpBtn" class="icon-btn" aria-label="Как пользоваться" title="Как пользоваться">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M9.5 9.3C9.7 8 10.7 7 12.1 7C13.5 7 14.6 8 14.6 9.2C14.6 10.7 12.9 11 12.2 11.9C12 12.2 12 12.5 12 13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="16.3" r="1" fill="currentColor"/></svg>
@@ -279,7 +279,7 @@
             <span class="field-icon" title="Название">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M7 8H5.5C4.7 8 4 8.7 4 9.5V13C4 13.8 4.7 14.5 5.5 14.5H6L5 18" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M16 8H14.5C13.7 8 13 8.7 13 9.5V13C13 13.8 13.7 14.5 14.5 14.5H15L14 18" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
             </span>
-            <h3>Название (немецкий)</h3>
+            <h3>Название (оригинал)</h3>
             <button class="copy-btn" data-copy-target="modalTitleDe">Копировать</button>
           </div>
           <p class="field-tile-text field-tile-text--title" id="modalTitleDe"></p>
@@ -395,8 +395,8 @@
           <input type="hidden" id="fieldGroup">
         </label>
 
-        <label>Название (немецкий, кликбейт)
-          <textarea id="fieldTitleDe" rows="2" required placeholder="„Zitat" — sagte X. Y Jahre später…"></textarea>
+        <label>Название (оригинал, кликбейт)
+          <textarea id="fieldTitleDe" rows="2" required placeholder="«Цитата» — кто сказал. Что случилось спустя годы…"></textarea>
         </label>
 
         <label>Перевод названия (русский)
@@ -412,15 +412,15 @@
         </label>
 
         <label>Теги (через запятую)
-          <textarea id="fieldTags" rows="2" placeholder="wahre geschichten, schicksal, …"></textarea>
+          <textarea id="fieldTags" rows="2" placeholder="тег1, тег2, тег3"></textarea>
         </label>
 
-        <label>Описание под видео (немецкий)
+        <label>Описание под видео
           <textarea id="fieldDescription" rows="4" placeholder="Текст описания на YouTube"></textarea>
         </label>
 
-        <label>Полный текст ролика (немецкий, для озвучки)
-          <textarea id="fieldScript" rows="14" required placeholder="Полный текст сценария на немецком…"></textarea>
+        <label>Полный текст ролика (для озвучки)
+          <textarea id="fieldScript" rows="14" required placeholder="Полный текст сценария…"></textarea>
         </label>
 
         <div class="panel-actions">

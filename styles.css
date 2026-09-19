@@ -1,0 +1,904 @@
+/* ==========================================================================
+   Schicksal Studio — стили
+   Шрифт: Bricolage Grotesque (переменная толщина 200-800) — ближайший
+   стильный вариативный гротеск к запрошенному "Gogh" (такого шрифта нет
+   в открытых источниках), используется везде: заголовки жирнее, текст легче.
+   ========================================================================== */
+
+* { box-sizing: border-box; }
+
+:root {
+  --font: 'Bricolage Grotesque', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* ---- тёмная тема (основная) ---- */
+  --bg: #06070a;
+  --bg-soft: #0a0b0f;
+  --bg-elevated: #101218;
+  --card-bg: #121319;
+  --card-bg-hover: #16181f;
+  --border: rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.14);
+  --text: #eef0f5;
+  --text-dim: #a2a5b3;
+  --text-faint: #5b5e6b;
+
+  --blue: #46c8ff;
+  --blue-2: #4f7fff;
+  --purple: #a875ff;
+  --purple-2: #7c4dff;
+  --teal: #2dd9c0;
+  --pink: #ff6fb0;
+  --amber: #ffb454;
+  --green: #6ee08a;
+
+  --grad-accent: linear-gradient(120deg, var(--blue) 0%, var(--purple) 100%);
+
+  --dot-color: rgba(255,255,255,0.09);
+  --shadow: 0 10px 40px rgba(0,0,0,0.45);
+
+  --radius-lg: 22px;
+  --radius-md: 14px;
+  --radius-sm: 9px;
+
+  /* плавность / баунс */
+  --ease-bounce: cubic-bezier(.34, 1.56, .64, 1);
+  --ease-bounce-soft: cubic-bezier(.3, 1.2, .4, 1);
+  --ease-smooth: cubic-bezier(.22, 1, .36, 1);
+  /* для крупных панелей/окон — быстро и чётко, без пружинного перехлёста */
+  --ease-snap: cubic-bezier(.16, 1, .3, 1);
+
+  /* общая высота шапки + строки-подсказки под ней — чтобы левая панель
+     проектов не залезала поверх верхнего бара */
+  --topbar-total-height: 96px;
+
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-weight: 440;
+  overflow: hidden;
+  transition: background .35s var(--ease-smooth), color .35s var(--ease-smooth);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+::selection { background: var(--purple); color: #fff; }
+[hidden] { display: none !important; }
+
+/* единый акцентный фокус-ринг для клавиатурной навигации по всей обёртке —
+   вместо разномастного дефолтного аутлайна браузера */
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+  transition: outline-color .15s ease;
+}
+
+.modal-body, .script-text, .workspace-grid, .groups-list { scroll-behavior: smooth; }
+
+.noise-overlay {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: radial-gradient(circle at 20% 15%, rgba(70,200,255,0.06), transparent 40%),
+                     radial-gradient(circle at 85% 75%, rgba(168,117,255,0.07), transparent 45%);
+}
+
+/* ---------------------------------- Панель проектов (слева) ---------------------------------- */
+
+/* Длинная полоса на весь край экрана (ниже шапки — на неё не залезает),
+   не нужно целиться, чтобы её найти, но в покое она почти не заметна.
+   Показывает имя и цвет текущего проекта, а не просто голая линия. */
+.workspace-peek {
+  position: fixed; left: 0; top: var(--topbar-total-height); bottom: 0; width: 26px; z-index: 51;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 10px;
+  padding-top: 18px;
+  background: var(--bg-soft); border-right: 1px solid var(--border);
+  color: var(--text-faint);
+  cursor: pointer; box-shadow: none;
+  transition: width .25s var(--ease-smooth), background .25s var(--ease-smooth),
+              box-shadow .25s var(--ease-smooth), color .2s ease;
+}
+.workspace-peek:hover {
+  width: 30px;
+  /* тот же сине-фиолетовый переход, но приглушённый — подмешиваем чёрный,
+     чтобы не резало глаза даже в наведённом состоянии */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--blue) 40%, var(--bg-soft)), color-mix(in srgb, var(--purple) 40%, var(--bg-soft)));
+  color: rgba(255,255,255,0.85);
+  box-shadow: 3px 0 16px rgba(60,80,140,0.16);
+}
+.workspace-peek.is-hidden { opacity: 0; pointer-events: none; }
+.workspace-peek-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--grp-c, var(--blue)); flex-shrink: 0; box-shadow: 0 0 8px var(--grp-c, var(--blue)); }
+.workspace-peek-label {
+  writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg);
+  font-size: 11.5px; font-weight: 700; letter-spacing: .02em;
+  color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-height: calc(100% - 40px);
+}
+
+.workspace-panel {
+  position: fixed; left: 0; top: var(--topbar-total-height); bottom: 0; width: min(460px, 88vw); z-index: 50;
+  background: var(--bg-elevated); border-right: 1px solid var(--border-strong);
+  box-shadow: 30px 0 80px rgba(0,0,0,0.45);
+  display: flex; flex-direction: column; padding: 24px 26px 30px;
+  transform: translateX(-100%);
+  transition: transform .3s var(--ease-snap);
+}
+.workspace-panel.is-open { transform: translateX(0); }
+
+/* ручка изменения ширины — доступна всегда, пока панель открыта
+   (раньше требовалось отдельно "закрепить", теперь это не нужно —
+   панель и так не закрывается сама, только по кнопке) */
+.workspace-resize-handle {
+  position: absolute; top: 0; right: -4px; width: 8px; height: 100%;
+  cursor: ew-resize; z-index: 5; opacity: 0; pointer-events: none;
+  transition: opacity .2s ease;
+}
+.workspace-resize-handle::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
+  background: var(--grad-accent); border-radius: 2px;
+}
+.workspace-panel.is-pinned .workspace-resize-handle { opacity: .35; pointer-events: auto; }
+.workspace-panel.is-pinned .workspace-resize-handle:hover,
+.workspace-panel.is-resizing .workspace-resize-handle { opacity: 1; }
+.workspace-panel.is-resizing { transition: none; }
+
+.workspace-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.workspace-panel-head h3 { margin: 0; font-size: 18px; font-weight: 800; }
+#workspacePin.is-active { color: var(--blue); box-shadow: 0 0 0 1px rgba(70,200,255,.35); }
+.workspace-hint { font-size: 12px; color: var(--text-faint); margin: 6px 0 20px; line-height: 1.5; }
+
+/* Мобильный триггер — фиксированная круглая кнопка снизу слева, вместо
+   тонкой полоски (её неудобно точно попадать пальцем). На ПК не показывается —
+   там остаётся полоска как была. */
+.workspace-mobile-fab { display: none; }
+@media (max-width: 860px) {
+  .workspace-peek { display: none; }
+  .workspace-resize-handle { display: none; }
+  .workspace-mobile-fab {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; left: 18px; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    width: 54px; height: 54px; border-radius: 50%; z-index: 52;
+    background: var(--bg-elevated); border: 1.5px solid var(--blue); color: var(--blue);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 16%, transparent), 0 8px 24px rgba(0,0,0,0.4);
+    cursor: pointer; transition: transform .2s var(--ease-bounce), box-shadow .2s ease;
+  }
+  .workspace-mobile-fab:active { transform: scale(.92); }
+  .workspace-mobile-fab.is-open {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 28%, transparent), 0 8px 24px rgba(0,0,0,0.4);
+  }
+}
+
+/* Плитки проектов — сетка, растущая из центра доступной высоты, а не список сверху вниз */
+.workspace-grid {
+  flex: 1; overflow-y: auto; overflow-x: hidden; align-content: center;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
+  padding: 14px 16px; margin: -14px -16px;
+}
+.workspace-tile {
+  position: relative; min-height: 118px; min-width: 0; border-radius: var(--radius-md);
+  background: var(--bg-soft); border: 1.5px solid var(--border);
+  padding: 16px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between;
+  transition: border-color .2s, background .2s, transform .22s var(--ease-bounce), box-shadow .25s;
+}
+.workspace-tile:hover { transform: translateY(-4px) scale(1.035); background: var(--card-bg-hover); border-color: var(--border-strong); }
+.workspace-tile:active { transform: translateY(-1px) scale(1.01); }
+.workspace-tile.is-active { border-color: var(--grp-c, var(--blue)); box-shadow: 0 0 22px color-mix(in srgb, var(--grp-c, var(--blue)) 30%, transparent); }
+.workspace-tile .workspace-icon { color: var(--grp-c, var(--blue)); }
+.workspace-tile .workspace-icon svg { width: 26px; height: 26px; }
+.workspace-tile .workspace-name { font-size: 14.5px; font-weight: 750; color: var(--text); line-height: 1.3; word-break: break-word; }
+.workspace-tile .workspace-count { font-size: 11px; color: var(--text-faint); font-weight: 600; }
+.workspace-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+.workspace-tile .workspace-edit {
+  width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; color: var(--text-faint);
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  opacity: 0; transform: scale(.8); transition: opacity .2s, transform .2s var(--ease-bounce), color .2s;
+}
+.workspace-tile:hover .workspace-edit, .workspace-tile.is-active .workspace-edit { opacity: 1; transform: scale(1); }
+.workspace-tile .workspace-edit:hover { color: var(--text); }
+
+.workspace-tile--add {
+  background: transparent; border: 1.5px dashed var(--border-strong);
+  align-items: center; justify-content: center; color: var(--text-faint);
+  gap: 6px; text-align: center;
+}
+.workspace-tile--add:hover { color: var(--blue); border-color: var(--blue); background: rgba(70,200,255,0.05); }
+.workspace-tile--add .plus-icon {
+  width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-soft); font-size: 20px; font-weight: 700; margin: 0 auto 6px;
+}
+
+.folder-modal { width: min(420px, 100%); }
+.folder-modal-actions { justify-content: space-between; }
+
+/* название открытого проекта — по центру шапки, кликабельно открывает/закрывает панель проектов */
+.topbar-workspace {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: 11px;
+  font-family: var(--font); font-weight: 750; font-size: 16px; color: var(--text-dim);
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: 999px;
+  padding: 11px 24px; cursor: pointer; white-space: nowrap; max-width: 40vw; overflow: hidden;
+  transition: border-color .2s ease, background .2s ease, transform .2s var(--ease-bounce), color .2s ease;
+}
+.topbar-workspace span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.topbar-workspace:hover { color: var(--text); border-color: var(--border-strong); background: var(--bg-elevated); transform: translate(-50%, -50%) scale(1.03); }
+.topbar-workspace:active { transform: translate(-50%, -50%) scale(0.96); }
+.topbar-workspace-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--grp-c, var(--blue)); flex-shrink: 0; box-shadow: 0 0 10px var(--grp-c, var(--blue)); }
+
+@media (max-width: 900px) {
+  .topbar-workspace { display: none; }
+}
+
+/* ---------------------------------- Настройки аккаунта ---------------------------------- */
+
+.folder-field { display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; font-weight: 700; color: var(--text-dim); margin-bottom: 16px; }
+.folder-field input {
+  font-family: var(--font); font-size: 14px; color: var(--text);
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 11px 13px; outline: none; transition: border-color .2s, box-shadow .2s;
+}
+.folder-field input:focus { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(120,150,255,0.12); }
+.auth-error-inline { font-size: 12.5px; color: #ff8a8a; min-height: 16px; margin: -8px 0 4px; }
+
+.auth-field-pw-wrap { position: relative; }
+.auth-field-pw-wrap input { width: 100%; padding-right: 42px; box-sizing: border-box; }
+.auth-eye-toggle {
+  position: absolute; right: 6px; bottom: 6px;
+  width: 30px; height: 30px; border: none; background: transparent; color: var(--text-faint);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 8px;
+  transition: color .2s ease, background .2s ease;
+}
+.auth-eye-toggle:hover { color: var(--text); background: var(--bg-elevated); }
+.auth-eye-toggle.is-active { color: var(--blue); }
+
+/* ---------------------------------- Кастомное окно подтверждения ---------------------------------- */
+
+.confirm-dialog { width: min(400px, 100%); }
+.confirm-title { font-size: 17px; font-weight: 800; margin: 0 0 10px; }
+.confirm-message { font-size: 13.5px; color: var(--text-dim); line-height: 1.55; margin: 0 0 22px; }
+
+/* ---------------------------------- Topbar ---------------------------------- */
+
+.topbar {
+  position: relative; z-index: 20;
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 22px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  background: linear-gradient(180deg, var(--bg-elevated), var(--bg-soft));
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; margin-right: 4px; flex-shrink: 0; }
+.brand-logo {
+  height: 42px; width: auto; display: block; -webkit-user-drag: none;
+  transition: transform .3s var(--ease-bounce), filter .3s var(--ease-smooth);
+  /* логотип монохромный чёрный на прозрачном фоне — инвертируем в белый под тёмный фон */
+  filter: invert(1) brightness(1.15);
+}
+.brand:hover .brand-logo { transform: scale(1.05); }
+
+.segment-filter-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.segment-filter-select { width: auto; min-width: 150px; }
+.segment-filter-trigger { font-weight: 700; }
+.segment-filter-trigger .seg-count { opacity: .55; font-weight: 700; font-size: 10.5px; margin-left: -2px; }
+.segment-filter-trigger .grp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--grp-c, var(--text-faint)); flex-shrink: 0; }
+.custom-select-option .seg-count { margin-left: auto; opacity: .55; font-weight: 700; font-size: 10.5px; }
+
+.icon-btn.add-group-btn { width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; }
+
+.stats {
+  font-size: 12.5px; color: var(--text-faint); font-weight: 500;
+  display: flex; gap: 10px; align-items: center; margin-right: auto;
+  white-space: nowrap;
+}
+.stats b { color: var(--text-dim); font-weight: 700; }
+.stats .dot { opacity: .4; }
+
+.topbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+.search-wrap {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px;
+  padding: 7px 11px; color: var(--text-faint);
+  transition: box-shadow .25s, border-color .25s;
+}
+.search-wrap:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(120,150,255,0.12); }
+.search-wrap input {
+  border: none; background: transparent; outline: none; color: var(--text);
+  font-family: var(--font); font-size: 13px; font-weight: 500; width: 150px;
+}
+.search-wrap input::placeholder { color: var(--text-faint); }
+.search-clear {
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%; border: none; padding: 0;
+  background: var(--bg-elevated); color: var(--text-faint); cursor: pointer; flex-shrink: 0;
+  opacity: 0; transform: scale(.7); transition: opacity .18s ease, transform .2s var(--ease-bounce), color .2s;
+}
+.search-clear:not([hidden]) { opacity: 1; transform: scale(1); }
+.search-clear:hover { color: var(--text); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-family: var(--font); font-weight: 700; font-size: 13px;
+  padding: 9px 15px; border-radius: 10px; border: none; background-clip: padding-box;
+  cursor: pointer; text-decoration: none; white-space: nowrap;
+  transition: transform .22s var(--ease-bounce), box-shadow .25s ease, filter .2s ease, background .2s ease;
+}
+.btn:active { transform: scale(0.93); }
+.btn-block { width: 100%; }
+.btn-primary { background: var(--grad-accent); color: #060709; box-shadow: 0 6px 22px rgba(120,150,255,0.28); }
+.btn-primary:hover { filter: brightness(1.08); box-shadow: 0 8px 26px rgba(120,150,255,0.4); transform: translateY(-1px); }
+.btn-accent { background: var(--bg-elevated); color: var(--blue); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.btn-accent:hover { box-shadow: inset 0 0 0 1px rgba(70,200,255,.3), 0 0 26px rgba(70,200,255,.18); transform: translateY(-1px); }
+.btn-ghost { background: transparent; color: var(--text-dim); box-shadow: inset 0 0 0 1px var(--border); }
+.btn-ghost:hover { color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.btn-danger { background: transparent; color: #ff6f6f; box-shadow: inset 0 0 0 1px rgba(255,111,111,.3); }
+.btn-danger:hover { background: rgba(255,111,111,.1); }
+
+.icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg-soft); color: var(--text-dim); cursor: pointer; position: relative;
+  transition: color .2s, border-color .2s, transform .25s var(--ease-bounce), background .2s;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--border-strong); transform: translateY(-2px) scale(1.04); }
+.icon-btn:active { transform: scale(0.9); }
+.icon-btn.is-off { color: var(--text-faint); opacity: .55; }
+#iconSun, #iconMoon, #iconSoundOn, #iconSoundOff { transition: opacity .3s, transform .4s var(--ease-bounce); }
+
+.hint-line {
+  position: relative; z-index: 15; margin: 0; text-align: center;
+  font-size: 11.5px; color: var(--text-faint); padding: 7px 0; letter-spacing: .01em;
+  background: var(--bg); border-bottom: 1px dashed var(--border);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+
+/* ---------------------------------- Help popover ---------------------------------- */
+
+.help-popover {
+  position: fixed; top: 96px; right: 22px; z-index: 55; width: 300px;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+  box-shadow: var(--shadow); padding: 16px 18px; font-size: 13px; color: var(--text-dim); line-height: 1.6;
+  opacity: 0; transform: translateY(-8px) scale(.96); pointer-events: none;
+  transition: opacity .25s var(--ease-smooth), transform .3s var(--ease-bounce);
+}
+.help-popover.is-open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.help-popover h4 { margin: 0 0 10px; font-size: 13.5px; color: var(--text); font-weight: 800; }
+.help-popover ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.help-popover li::marker { color: var(--blue); }
+
+/* ---------------------------------- Canvas ---------------------------------- */
+
+.canvas-viewport {
+  position: absolute; inset: 0; top: var(--topbar-total-height);
+  overflow: hidden; cursor: grab;
+  background: var(--bg);
+  user-select: none; -webkit-user-select: none;
+  touch-action: none;
+}
+.canvas-viewport.is-panning { cursor: grabbing; }
+.canvas-viewport * { -webkit-user-drag: none; }
+
+/* .canvas-pan отвечает только за перемещение (translate, реальные экранные пиксели) —
+   .canvas-inner отвечает только за масштаб через свойство zoom (не transform:scale),
+   поэтому текст на карточках остаётся чётким на любом уровне приближения:
+   transform:scale просто растягивает готовый растр слоя, а zoom заставляет
+   браузер по-настоящему пересчитать раскладку и переrenderить текст в новом размере. */
+.canvas-pan {
+  position: absolute; inset: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.canvas-inner {
+  position: relative;
+  width: 3200px; min-height: 2400px;
+  padding: 90px 0 160px;
+  opacity: 1;
+  transition: opacity .18s ease;
+}
+.canvas-inner.is-switching { opacity: 0; }
+
+.canvas-dots {
+  position: absolute; inset: -400px;
+  background-image: radial-gradient(var(--dot-color) 1.6px, transparent 1.6px);
+  background-size: 30px 30px;
+  pointer-events: none;
+  /* точки плавно тают к краям, а не обрываются жёсткой границей поля */
+  mask-image: radial-gradient(ellipse 65% 65% at center, black 45%, transparent 92%);
+  -webkit-mask-image: radial-gradient(ellipse 65% 65% at center, black 45%, transparent 92%);
+}
+
+.zone { position: relative; width: 1500px; margin: 0 auto; padding: 0 10px; }
+.zone-head { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding-left: 4px; }
+.zone-sort { margin-left: auto; width: auto; }
+.zone-title { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+.zone-count {
+  font-size: 12px; font-weight: 700; color: var(--text-faint);
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  padding: 2px 9px; border-radius: 20px;
+}
+
+.zone-divider {
+  width: 1500px; margin: 46px auto; display: flex; align-items: center; gap: 14px;
+  color: var(--text-faint); font-size: 12px; font-weight: 600;
+}
+.zone-divider::before {
+  content: ''; flex: 1; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--ws-c, var(--blue)));
+}
+.zone-divider::after {
+  content: ''; flex: 1; height: 2px;
+  background: linear-gradient(90deg, var(--ws-c, var(--purple)), transparent);
+}
+
+.cards-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+  align-items: stretch; /* карточки в одном ряду всегда одной высоты */
+}
+
+.empty-state { color: var(--text-faint); font-size: 13.5px; padding: 30px 4px; }
+
+/* ---------------------------------- Card ---------------------------------- */
+
+.card {
+  --card-accent: var(--blue);
+  position: relative;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 18px 18px 20px;
+  cursor: pointer; overflow: hidden;
+  display: flex; flex-direction: column; /* мета всегда прибита к низу, независимо от длины текста выше */
+  transition: transform .32s var(--ease-bounce), box-shadow .3s var(--ease-smooth), border-color .25s ease, background .2s ease, opacity .3s ease;
+}
+.card.card-enter { animation: cardIn .55s var(--ease-bounce) both; }
+.card:hover {
+  transform: translateY(-7px) scale(1.03);
+  background: var(--card-bg-hover);
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-accent) 45%, transparent), 0 14px 34px color-mix(in srgb, var(--card-accent) 18%, transparent);
+}
+.card:active { transform: translateY(-2px) scale(0.995); }
+.card.is-done { opacity: .82; }
+.card.is-done:hover { opacity: 1; }
+
+.card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.card-top-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.card-date { font-size: 10.5px; color: var(--text-faint); font-weight: 600; white-space: nowrap; cursor: default; }
+.card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* корзина — в правом нижнем углу карточки, появляется при наведении */
+.card-delete {
+  position: absolute; right: 12px; bottom: 12px; z-index: 2;
+  width: 28px; height: 28px; border-radius: 50%; border: 1.6px solid var(--border);
+  background: var(--bg-elevated); color: var(--text-faint); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; opacity: 0; transform: scale(.7) translateY(4px); pointer-events: none;
+  transition: opacity .2s var(--ease-smooth), transform .3s var(--ease-bounce), color .2s, border-color .2s, background .2s;
+}
+.card:hover .card-delete { opacity: 1; transform: scale(1) translateY(0); pointer-events: auto; }
+.card-delete:hover { color: #ff6f6f; border-color: rgba(255,111,111,.4); background: rgba(255,111,111,.1); }
+.card-delete:active { transform: scale(.88); }
+
+.badge {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+  padding: 4px 9px 4px 7px; border-radius: 20px; display: inline-flex; align-items: center; gap: 5px;
+  color: var(--grp-c, var(--text-dim)); background: color-mix(in srgb, var(--grp-c, var(--bg-soft)) 16%, transparent);
+}
+.badge .grp-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+/* min-height = высота под максимум строк по line-clamp — так короткий текст
+   не "сжимает" карточку и не ломает ритм рядом со длинным соседом.
+   3 строки максимум, дальше многоточие (стандартное поведение line-clamp). */
+.card-title-de {
+  font-size: 15px; font-weight: 700; line-height: 1.38; margin: 0 0 6px;
+  color: var(--text); letter-spacing: -0.005em; min-height: 4.14em;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-title-ru {
+  font-size: 11.5px; color: var(--text-faint); font-weight: 460; line-height: 1.4; margin: 0 0 14px;
+  min-height: 2.8em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 8px; }
+.card-meta { font-size: 11px; color: var(--text-faint); font-weight: 600; display: flex; gap: 8px; align-items: center; }
+
+/* checkbox — крупная, приятно и удобно нажимать */
+.check {
+  position: relative; width: 38px; height: 38px; border-radius: 50%; overflow: hidden;
+  border: 2px solid var(--border-strong); background: var(--bg-soft);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  cursor: pointer; transition: border-color .25s var(--ease-bounce), transform .25s var(--ease-bounce);
+}
+/* градиент кладём отдельным слоем и просто проявляем через opacity —
+   переход самого background от заливки к градиенту на border-radius:50%
+   вместе с transform у некоторых браузеров рисует "квадрат" по углам круга */
+.check::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: var(--grad-accent); opacity: 0; transition: opacity .25s var(--ease-bounce);
+}
+.check:hover { border-color: var(--blue); transform: scale(1.12) rotate(-6deg); }
+.check:active { transform: scale(.92); }
+.check svg { position: relative; z-index: 1; width: 18px; height: 18px; color: #06070a; }
+.check svg path { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .35s var(--ease-bounce) .05s; }
+.card.is-done .check { border-color: transparent; transform: scale(1.05); }
+.card.is-done .check::before { opacity: 1; }
+.card.is-done .check svg path { stroke-dashoffset: 0; }
+
+.card.card--completing { animation: cardPulse .6s var(--ease-bounce); }
+
+/* ---------------------------------- Modal ---------------------------------- */
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: rgba(3,4,7,0.6); backdrop-filter: blur(6px);
+  opacity: 0; pointer-events: none; transition: opacity .28s var(--ease-smooth);
+  padding: 24px;
+}
+.modal-backdrop.is-open { opacity: 1; pointer-events: auto; }
+
+.modal {
+  width: min(720px, 100%); max-height: min(86vh, 900px);
+  background: var(--bg-elevated); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); box-shadow: 0 30px 90px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column; overflow: hidden;
+  transform: scale(.97) translateY(10px); opacity: 0;
+  transition: transform .28s var(--ease-snap), opacity .22s var(--ease-smooth);
+}
+.modal-backdrop.is-open .modal { transform: scale(1) translateY(0); opacity: 1; }
+
+.modal-head {
+  position: relative;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 16px 18px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.modal-head::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--grad-accent); opacity: .8;
+}
+.modal-head-left { display: flex; align-items: center; gap: 10px; }
+.modal-date { font-size: 11.5px; color: var(--text-faint); font-weight: 600; }
+.modal-head-actions { display: flex; align-items: center; gap: 6px; }
+
+.done-toggle {
+  display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
+  padding: 7px 12px 7px 8px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg-soft); transition: border-color .2s, background .2s, transform .2s var(--ease-bounce);
+}
+.done-toggle:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.done-toggle:active { transform: scale(.95); }
+.done-toggle input { display: none; }
+.done-toggle .check-visual {
+  position: relative; width: 20px; height: 20px; border-radius: 50%; overflow: hidden;
+  border: 1.6px solid var(--border-strong);
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color .25s var(--ease-bounce), transform .25s var(--ease-bounce); color: #06070a;
+}
+.done-toggle .check-visual::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: var(--grad-accent); opacity: 0; transition: opacity .25s var(--ease-bounce);
+}
+.done-toggle .check-visual svg { position: relative; z-index: 1; }
+.done-toggle .check-visual svg path { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .35s ease .05s; }
+.done-toggle input:checked ~ .check-visual { border-color: transparent; transform: scale(1.08); }
+.done-toggle input:checked ~ .check-visual::before { opacity: 1; }
+.done-toggle input:checked ~ .check-visual svg path { stroke-dashoffset: 0; }
+.done-toggle-text { font-size: 12.5px; font-weight: 700; color: var(--text-dim); }
+
+.modal-body { overflow-y: auto; padding: 22px 24px 30px; }
+/* Каждое копируемое поле — своя тёмная плашка: иконка + подпись + кнопка
+   "Копировать" внутри одной шапки плашки, а не отдельно над текстом. Иконки
+   специально одного приглушённого цвета (не радужные) — только форма разная,
+   чтобы считывалось ассоциативно, а не отвлекало. */
+.field-tile {
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 14px 16px; margin-bottom: 14px;
+  transition: border-color .2s ease;
+}
+.field-tile:hover { border-color: var(--border-strong); }
+.field-tile-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.field-tile-head .field-icon { color: var(--text-faint); display: flex; flex-shrink: 0; }
+.field-tile-head h3 {
+  flex: 1; min-width: 0; margin: 0; font-size: 11.5px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-faint); font-weight: 800;
+}
+.field-tile-text { font-size: 14px; line-height: 1.65; color: var(--text); margin: 0; white-space: pre-wrap; }
+.field-tile-text--title { font-size: 15px; font-weight: 440; }
+
+/* русский перевод — крупный жирный заголовок сверху, не для копирования */
+.modal-title-ru { font-size: 22px; font-weight: 800; line-height: 1.35; margin: 0 0 8px; letter-spacing: -0.01em; color: var(--text); }
+/* суть на русском — второстепенный текст сразу под заголовком, тоже не для копирования */
+.modal-summary { font-size: 13.5px; font-weight: 460; line-height: 1.55; margin: 0 0 22px; color: var(--text-faint); }
+.field-tile-text.mono { font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace; font-size: 12.5px; }
+.field-tile--script { margin-bottom: 0; }
+
+.copy-btn {
+  font-family: var(--font); font-size: 11px; font-weight: 700; color: var(--text-faint);
+  background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; cursor: pointer;
+  transition: color .2s, border-color .2s, background .2s, transform .2s var(--ease-bounce);
+}
+.copy-btn:hover { color: var(--blue); border-color: var(--border-strong); }
+.copy-btn:active { transform: scale(.92); }
+.copy-btn.is-copied { color: var(--blue); border-color: var(--blue); }
+
+.tags-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-chip { font-size: 11.5px; font-weight: 600; color: var(--text-dim); background: var(--bg-soft); border: 1px solid var(--border); padding: 4px 10px; border-radius: 20px; }
+
+.block-script { margin-bottom: 0; }
+.script-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.script-meta { display: flex; align-items: center; gap: 8px; }
+.script-meta .field-icon { color: var(--text-faint); display: flex; flex-shrink: 0; }
+.script-meta h3 { margin: 0; }
+.script-est { font-size: 11.5px; color: var(--text-faint); font-weight: 600; }
+.script-actions { display: flex; gap: 8px; }
+.fallback-link { display: inline-block; font-size: 11px; color: var(--text-faint); margin: 4px 0 10px; text-decoration: none; }
+.fallback-link:hover { color: var(--blue); }
+.script-text {
+  font-family: var(--font); font-weight: 460; font-size: 14.5px; line-height: 1.75;
+  white-space: pre-wrap; color: var(--text); user-select: text;
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 18px 20px; margin: 0; max-height: 340px; overflow-y: auto;
+}
+
+/* scrollbars */
+.modal-body::-webkit-scrollbar, .script-text::-webkit-scrollbar, .canvas-viewport::-webkit-scrollbar, .groups-list::-webkit-scrollbar { width: 9px; }
+.modal-body::-webkit-scrollbar-thumb, .script-text::-webkit-scrollbar-thumb, .groups-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 20px; }
+.modal-body::-webkit-scrollbar-track, .script-text::-webkit-scrollbar-track, .groups-list::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------------------------------- Side panel ---------------------------------- */
+
+.panel-backdrop {
+  position: fixed; inset: 0; z-index: 70; background: rgba(3,4,7,0.55); backdrop-filter: blur(4px);
+  opacity: 0; pointer-events: none; transition: opacity .3s var(--ease-smooth);
+}
+.panel-backdrop.is-open { opacity: 1; pointer-events: auto; }
+
+.side-panel {
+  position: absolute; top: 0; right: 0; height: 100%; width: min(760px, 94vw);
+  background: var(--bg-elevated); border-left: 1px solid var(--border-strong);
+  display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform .3s var(--ease-snap);
+  box-shadow: -30px 0 60px rgba(0,0,0,0.35);
+}
+.panel-backdrop.is-open .side-panel { transform: translateX(0); }
+
+.panel-head { position: relative; display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.panel-head::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--grad-accent); opacity: .8; }
+.panel-head-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+/* Похоже на поле ввода, а не на круглую иконку — сразу читается как
+   "сюда можно что-то вставить", а не как обычная кнопка-действие.
+   Углы специально более прямоугольные, не пилюля. */
+.bulk-paste-trigger {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  font-family: var(--font); font-weight: 600; font-size: 12.5px; color: var(--text-faint);
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 8px 14px 8px 12px; cursor: pointer; white-space: nowrap;
+  transition: border-color .2s ease, color .2s ease, background .2s ease, transform .18s var(--ease-bounce);
+}
+.bulk-paste-trigger:hover { color: var(--text); border-color: var(--border-strong); background: var(--bg-elevated); }
+.bulk-paste-trigger:active { transform: scale(.96); }
+.bulk-paste-trigger.is-active { color: var(--blue); border-color: var(--blue); box-shadow: 0 0 0 3px rgba(70,200,255,0.12); }
+.bulk-paste-trigger.is-copied { color: var(--blue); border-color: var(--blue); }
+
+/* квадратный вариант той же кнопки — только иконка, без подписи */
+.bulk-paste-trigger--square { padding: 8px; width: 36px; height: 36px; justify-content: center; }
+.panel-head-actions { display: flex; align-items: center; gap: 8px; }
+
+/* Быстрая вставка одним текстом по шаблону — раскрывается прямо под шапкой
+   панели, отдельным крупным прямоугольным блоком (не на весь экран) */
+.bulk-paste {
+  max-height: 0; overflow: hidden; flex-shrink: 0;
+  transition: max-height .34s var(--ease-snap);
+  border-bottom: 1px solid transparent;
+}
+.bulk-paste.is-open { max-height: 480px; border-bottom-color: var(--border); }
+.bulk-paste-inner { padding: 18px 30px; }
+.bulk-paste-hint { margin: 0 0 10px; font-size: 12px; color: var(--text-faint); }
+.bulk-paste-field-wrap { position: relative; }
+.bulk-paste-inner textarea {
+  display: block; width: 100%; box-sizing: border-box;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace; font-size: 12.5px;
+  color: var(--text); background: var(--bg-soft); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px 44px 16px 17px; resize: vertical; outline: none; line-height: 1.7;
+}
+.bulk-paste-inner textarea:focus { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(120,150,255,0.12); }
+.bulk-paste-copy-icon {
+  position: absolute; top: 10px; right: 10px;
+  width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-faint); cursor: pointer;
+  transition: color .2s ease, border-color .2s ease, transform .2s var(--ease-bounce);
+}
+.bulk-paste-copy-icon:hover { color: var(--blue); border-color: var(--border-strong); }
+.bulk-paste-copy-icon:active { transform: scale(.9); }
+.bulk-paste-copy-icon.is-copied { color: var(--blue); border-color: var(--blue); }
+.bulk-paste-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+.panel-head h2 { margin: 0; font-size: 17px; font-weight: 800; }
+
+.video-form { overflow-y: auto; padding: 30px 36px; display: flex; flex-direction: column; gap: 20px; }
+.video-form label { display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; font-weight: 700; color: var(--text-dim); }
+.label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.label-row .mini-link { font-size: 11.5px; font-weight: 700; color: var(--blue); background: none; border: none; cursor: pointer; padding: 0; }
+.label-row .mini-link:hover { text-decoration: underline; }
+.video-form textarea, .video-form select {
+  font-family: var(--font); font-weight: 480; font-size: 14.5px; color: var(--text);
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 13px 15px; resize: vertical; outline: none; transition: border-color .2s, box-shadow .2s;
+  line-height: 1.55;
+}
+.video-form textarea:focus, .video-form select:focus { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(120,150,255,0.12); }
+.video-form select { appearance: none; cursor: pointer; }
+
+.panel-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; padding-bottom: 6px; }
+
+/* ---------------------------------- Кастомный выпадающий список ---------------------------------- */
+/* Заменяет нативный <select>, у которого список опций нельзя стилизовать под тёмную тему. */
+
+.custom-select { position: relative; }
+.custom-select-trigger {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  font-family: var(--font); font-weight: 600; font-size: 13.5px; color: var(--text);
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 12px; cursor: pointer; text-align: left;
+  transition: border-color .2s, box-shadow .2s, transform .15s var(--ease-bounce);
+}
+.custom-select-trigger:hover { border-color: var(--border-strong); }
+.custom-select-trigger:active { transform: scale(.99); }
+.custom-select-trigger .chevron { margin-left: auto; flex-shrink: 0; transition: transform .25s var(--ease-bounce); color: var(--text-faint); }
+.custom-select.is-open .custom-select-trigger .chevron { transform: rotate(180deg); }
+.custom-select.is-open .custom-select-trigger { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(120,150,255,0.12); }
+.custom-select-trigger span:not(.grp-dot) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-select-trigger--sort { width: auto; padding: 9px 12px; background: var(--bg-soft); font-size: 12.5px; }
+
+.custom-select-list {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 40;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); padding: 5px; max-height: 260px; overflow-y: auto; overflow-x: hidden;
+  opacity: 0; transform: translateY(-6px) scale(.97); pointer-events: none;
+  transition: opacity .2s var(--ease-smooth), transform .25s var(--ease-bounce);
+}
+.custom-select.is-open .custom-select-list { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.custom-select-option {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 7px;
+  font-size: 13px; font-weight: 550; color: var(--text-dim); cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.custom-select-option:hover, .custom-select-option.is-active { background: var(--bg-soft); color: var(--text); }
+.custom-select-option .grp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.custom-select-option > span:not(.grp-dot):not(.seg-count) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-select-option { white-space: normal; }
+.custom-select-option .seg-count { flex-shrink: 0; margin-left: auto; }
+
+/* ---------------------------------- Groups modal ---------------------------------- */
+
+/* модалка групп может открываться поверх уже открытой панели добавления ролика —
+   поднимаем её выше (панель — z-index:70) и убираем собственный блюр, чтобы не
+   получалось "блюр на блюре" и мутной каши на фоне */
+#groupsModalBackdrop { z-index: 85; background: rgba(3,4,7,0.78); backdrop-filter: blur(2px); }
+
+.new-group-label { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); }
+.groups-list { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; margin-bottom: 16px; }
+.group-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px;
+  background: var(--bg-soft); border: 1px solid var(--border);
+  transition: border-color .2s, transform .2s var(--ease-bounce);
+}
+.group-row:hover { border-color: var(--border-strong); }
+.group-row .grp-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+.group-row input.group-name-input {
+  flex: 1; border: none; background: transparent; color: var(--text); font-family: var(--font);
+  font-size: 13.5px; font-weight: 600; outline: none; padding: 4px 2px; border-radius: 6px;
+}
+.group-row input.group-name-input:focus { background: var(--bg-elevated); }
+.group-row .group-count { font-size: 11px; color: var(--text-faint); font-weight: 600; white-space: nowrap; }
+.group-row .icon-btn { width: 28px; height: 28px; border-radius: 8px; }
+
+.new-group-form { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px dashed var(--border); }
+.new-group-form input[type="text"] {
+  font-family: var(--font); font-size: 13.5px; font-weight: 500; color: var(--text);
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 12px; outline: none;
+}
+.color-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.color-swatch {
+  width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer;
+  transition: transform .2s var(--ease-bounce), border-color .2s;
+}
+.color-swatch:hover { transform: scale(1.15); }
+.color-swatch.is-selected { border-color: var(--text); transform: scale(1.15); }
+
+/* ---------------------------------- Zoom controls ---------------------------------- */
+
+.zoom-controls {
+  position: fixed; right: 20px; bottom: 20px; z-index: 15;
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 14px; padding: 6px;
+  box-shadow: var(--shadow);
+}
+.zoom-controls button {
+  width: 34px; height: 34px; border-radius: 9px; border: none; background: transparent;
+  color: var(--text-dim); font-size: 16px; font-weight: 700; cursor: pointer; font-family: var(--font);
+  transition: background .2s, color .2s, transform .2s var(--ease-bounce);
+}
+.zoom-controls button:hover { background: var(--bg-soft); color: var(--text); transform: scale(1.08); }
+.zoom-controls button:active { transform: scale(.9); }
+
+/* ---------------------------------- Toasts ---------------------------------- */
+
+.toast-stack { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.toast {
+  background: var(--bg-elevated); border: 1px solid var(--border-strong); color: var(--text);
+  font-size: 13px; font-weight: 600; padding: 11px 18px; border-radius: 12px;
+  box-shadow: var(--shadow); display: flex; align-items: center; gap: 8px;
+  animation: toastIn .4s var(--ease-bounce) both;
+}
+.toast.is-leaving { animation: toastOut .25s ease both; }
+.toast .dot-accent { width: 7px; height: 7px; border-radius: 50%; background: var(--grad-accent); flex-shrink: 0; }
+
+/* ---------------------------------- Confetti ---------------------------------- */
+
+.confetti-layer { position: fixed; inset: 0; pointer-events: none; z-index: 85; overflow: hidden; }
+.confetti-piece { position: absolute; border-radius: 2px; animation: confettiFall 900ms ease-out forwards; }
+
+/* ---------------------------------- Keyframes ---------------------------------- */
+
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(18px) scale(.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes cardPulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.045); box-shadow: 0 0 0 2px var(--blue), 0 0 34px rgba(70,200,255,0.35); }
+  100% { transform: scale(1); }
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(14px) scale(.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(8px) scale(.92); }
+}
+@keyframes confettiFall {
+  0% { transform: translate(0,0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; }
+}
+
+/* ---------------------------------- Responsive ---------------------------------- */
+
+@media (max-width: 860px) {
+  .topbar { gap: 10px; }
+  .stats { display: none; }
+  .search-wrap input { width: 100px; }
+  .cards-grid { grid-template-columns: 1fr; }
+  .segment-filter-select { max-width: 60vw; }
+
+  /* На телефоне бескрайнее поле мешает — вместо перетаскивания/зума обычная
+     вертикальная прокрутка, как на любой нормальной странице */
+  .canvas-viewport {
+    overflow-y: auto; overflow-x: hidden;
+    touch-action: pan-y; cursor: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .canvas-pan { position: static !important; transform: none !important; }
+  .canvas-inner {
+    width: 100%; min-height: auto; padding: 16px 0 90px;
+    zoom: 1 !important;
+  }
+  .canvas-dots { display: none; }
+  .zone, .zone-divider { width: 100%; max-width: none; padding: 0 14px; box-sizing: border-box; }
+  .zoom-controls { display: none; }
+  .workspace-panel { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .brand-name { display: none; }
+  .segment-filter-wrap { order: 3; width: 100%; justify-content: center; }
+  .segment-filter-select { max-width: 80vw; }
+  .btn span { display: none; }
+  .help-popover { right: 10px; left: 10px; width: auto; }
+}

@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ezyt</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23090a0d'/%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f8cff'/%3E%3Cstop offset='1' stop-color='%23b07bff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='16' y='27' width='68' height='46' rx='16' fill='url(%23g)'/%3E%3Cpath d='M42 37 L42 63 L64 50 Z' fill='%23ffffff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="auth.js"></script>
+<script>Auth.requireLogin();</script>
+</head>
+<body>
+
+  <div class="noise-overlay" aria-hidden="true"></div>
+
+  <!-- Панель проектов ("папки" верхнего уровня — например разные каналы/тематики) -->
+  <div class="workspace-peek" id="workspacePeek" title="Проекты">
+    <span class="workspace-peek-dot" id="workspacePeekDot"></span>
+    <span class="workspace-peek-label" id="workspacePeekLabel">Main</span>
+  </div>
+  <button class="workspace-mobile-fab" id="workspaceMobileFab" title="Проекты" aria-label="Проекты">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3.5 6.5C3.5 5.7 4.2 5 5 5H9.5L11.5 7.5H19C19.8 7.5 20.5 8.2 20.5 9V17.5C20.5 18.3 19.8 19 19 19H5C4.2 19 3.5 18.3 3.5 17.5V6.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+  </button>
+  <aside class="workspace-panel" id="workspacePanel">
+    <div class="workspace-panel-head">
+      <h3>Проекты</h3>
+      <button class="icon-btn" id="workspacePin" title="Закрепить панель открытой">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3L12 12M7 12H17L15 17H9L7 12Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 17L8 21M15 17L16 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <p class="workspace-hint">У каждого проекта — свои ролики и свои группы. Клик по плитке — открыть, шестерёнка — настройки.</p>
+    <div class="workspace-grid" id="workspaceGrid"></div>
+    <div class="workspace-resize-handle" id="workspaceResizeHandle" title="Потяните, чтобы изменить ширину"></div>
+  </aside>
+
+  <!-- Окно создания/редактирования проекта -->
+  <div class="modal-backdrop" id="folderModalBackdrop">
+    <div class="modal folder-modal" id="folderModal">
+      <div class="modal-head">
+        <span id="folderModalTitle" style="font-weight:800;font-size:15px;">Новый проект</span>
+        <button class="icon-btn modal-close" id="folderModalClose" title="Закрыть">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <label class="folder-field">
+          <span>Название проекта</span>
+          <input type="text" id="folderNameInput" placeholder="Например, Main">
+        </label>
+        <label class="folder-field">
+          <span>Цвет</span>
+          <div class="color-swatches" id="folderColorSwatches"></div>
+        </label>
+        <div class="panel-actions folder-modal-actions">
+          <button type="button" class="btn btn-danger" id="folderDeleteBtn" hidden>Удалить проект</button>
+          <button type="button" class="btn btn-primary" id="folderSaveBtn">Создать проект</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Кастомное окно подтверждения (вместо системного confirm) -->
+  <div class="modal-backdrop" id="confirmBackdrop">
+    <div class="modal confirm-dialog" id="confirmDialog">
+      <div class="modal-body">
+        <h3 class="confirm-title" id="confirmTitle">Вы уверены?</h3>
+        <p class="confirm-message" id="confirmMessage"></p>
+        <div class="panel-actions">
+          <button type="button" class="btn btn-ghost" id="confirmCancelBtn">Отмена</button>
+          <button type="button" class="btn btn-danger" id="confirmOkBtn">Удалить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Настройки аккаунта -->
+  <div class="modal-backdrop" id="settingsBackdrop">
+    <div class="modal folder-modal" id="settingsModal">
+      <div class="modal-head">
+        <span style="font-weight:800;font-size:15px;">Настройки аккаунта</span>
+        <button class="icon-btn modal-close" id="settingsClose" title="Закрыть">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="formUsername">
+          <label class="folder-field">
+            <span>Ник</span>
+            <input type="text" id="settingsUsername" minlength="2" required>
+          </label>
+          <p class="auth-error-inline" id="usernameError"></p>
+          <div class="panel-actions"><button type="submit" class="btn btn-primary">Сохранить ник</button></div>
+        </form>
+        <form id="formPassword" style="margin-top:22px;padding-top:20px;border-top:1px dashed var(--border);">
+          <label class="folder-field auth-field-pw-wrap">
+            <span>Текущий пароль</span>
+            <input type="password" id="settingsCurrentPassword" autocomplete="off" required>
+            <button type="button" class="auth-eye-toggle" data-for="settingsCurrentPassword" title="Показать пароль">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M2 12C4 7.5 7.5 5 12 5C16.5 5 20 7.5 22 12C20 16.5 16.5 19 12 19C7.5 19 4 16.5 2 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+            </button>
+          </label>
+          <label class="folder-field auth-field-pw-wrap">
+            <span>Новый пароль</span>
+            <input type="password" id="settingsNewPassword" minlength="6" autocomplete="off" required>
+            <button type="button" class="auth-eye-toggle" data-for="settingsNewPassword" title="Показать пароль">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M2 12C4 7.5 7.5 5 12 5C16.5 5 20 7.5 22 12C20 16.5 16.5 19 12 19C7.5 19 4 16.5 2 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+            </button>
+          </label>
+          <p class="auth-error-inline" id="passwordError"></p>
+          <div class="panel-actions"><button type="submit" class="btn btn-primary">Сменить пароль</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="logo-ezyt.png" alt="ezyt." class="brand-logo">
+    </div>
+
+    <button class="topbar-workspace" id="topbarWorkspace" title="Открыть список проектов">
+      <span class="topbar-workspace-dot" id="topbarWorkspaceDot"></span>
+      <span id="topbarWorkspaceName">Main</span>
+    </button>
+
+    <div class="segment-filter-wrap">
+      <div class="custom-select segment-filter-select" id="segmentFilterWrap">
+        <button type="button" class="custom-select-trigger segment-filter-trigger" id="segmentFilterTrigger">
+          <span class="grp-dot" id="segmentFilterDot" hidden></span>
+          <span id="segmentFilterLabel">Все</span>
+          <span class="seg-count" id="segmentFilterCount">0</span>
+          <svg class="chevron" width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="custom-select-list" id="segmentFilterList"></div>
+      </div>
+      <button id="manageGroupsBtn" class="icon-btn add-group-btn" title="Управление группами" aria-label="Управление группами">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <div class="stats" id="statsBar"></div>
+
+    <div class="topbar-actions">
+      <div class="search-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input type="search" id="searchInput" placeholder="Поиск по темам…" autocomplete="off">
+        <button class="search-clear" id="searchClearBtn" title="Очистить поиск" hidden>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <button id="addBtn" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        Новый ролик
+      </button>
+      <button id="helpBtn" class="icon-btn" aria-label="Как пользоваться" title="Как пользоваться">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M9.5 9.3C9.7 8 10.7 7 12.1 7C13.5 7 14.6 8 14.6 9.2C14.6 10.7 12.9 11 12.2 11.9C12 12.2 12 12.5 12 13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="16.3" r="1" fill="currentColor"/></svg>
+      </button>
+      <button id="soundToggle" class="icon-btn" aria-label="Звук" title="Звуковые эффекты вкл/выкл">
+        <svg id="iconSoundOn" width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4 9V15H8L13 20V4L8 9H4Z" fill="currentColor"/><path d="M16.5 8.5C17.5 9.5 18 10.7 18 12C18 13.3 17.5 14.5 16.5 15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <svg id="iconSoundOff" width="17" height="17" viewBox="0 0 24 24" fill="none" hidden><path d="M4 9V15H8L13 20V4L8 9H4Z" fill="currentColor"/><path d="M16 9L20 15M20 9L16 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <button id="settingsBtn" class="icon-btn" aria-label="Настройки аккаунта" title="Настройки аккаунта">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 13.5C19.5 13 19.5 12.5 19.5 12C19.5 11.5 19.5 11 19.4 10.5L21.4 9L19.9 6.3L17.6 7.2C16.9 6.6 16.1 6.1 15.2 5.8L14.9 3.4H11.9L11.6 5.8C10.7 6.1 9.9 6.6 9.2 7.2L6.9 6.3L5.4 9L7.4 10.5C7.3 11 7.3 11.5 7.3 12C7.3 12.5 7.3 13 7.4 13.5L5.4 15L6.9 17.7L9.2 16.8C9.9 17.4 10.7 17.9 11.6 18.2L11.9 20.6H14.9L15.2 18.2C16.1 17.9 16.9 17.4 17.6 16.8L19.9 17.7L21.4 15L19.4 13.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="logoutBtn" class="icon-btn" aria-label="Выйти" title="Выйти из аккаунта">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M9 4H6C4.9 4 4 4.9 4 6V18C4 19.1 4.9 20 6 20H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M14 8L18 12L14 16M18 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="help-popover" id="helpPopover">
+    <h4>Как это устроено</h4>
+    <ul>
+      <li>Тащи фон мышкой или крути колесо — перемещаешься по полю (работает и над карточками)</li>
+      <li>Ctrl + колесо мыши, либо кнопки +/− снизу — масштаб</li>
+      <li>Клик по карточке открывает полную информацию о ролике</li>
+      <li>Галочка на карточке — отметить ролик выполненным, он уедет вниз</li>
+      <li>Кнопка «+» у фильтра — создать свою группу/тематику</li>
+      <li>В любом блоке карточки есть кнопка «Копировать»</li>
+    </ul>
+  </div>
+
+  <main class="canvas-viewport" id="viewport">
+    <div class="canvas-pan" id="canvasPan">
+      <div class="canvas-inner" id="canvasInner">
+        <div class="canvas-dots" aria-hidden="true"></div>
+
+        <section class="zone zone-active">
+          <div class="zone-head">
+            <h2 class="zone-title">В работе</h2>
+            <span class="zone-count" id="activeCount">0</span>
+            <div class="custom-select zone-sort" id="activeSortWrap">
+              <button type="button" class="custom-select-trigger custom-select-trigger--sort" id="activeSortTrigger">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 8L6 20M6 8L3 11M6 8L9 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 16L18 4M18 16L15 13M18 16L21 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span id="activeSortLabel">Новые сначала</span>
+              </button>
+              <div class="custom-select-list" id="activeSortList"></div>
+            </div>
+          </div>
+          <div class="cards-grid" id="activeGrid"></div>
+          <p class="empty-state" id="activeEmpty" hidden>Здесь пока пусто. Добавьте новый ролик →</p>
+        </section>
+
+        <div class="zone-divider">
+          <span>✓ выполненные ролики опускаются сюда</span>
+        </div>
+
+        <section class="zone zone-done">
+          <div class="zone-head">
+            <h2 class="zone-title">Готово</h2>
+            <span class="zone-count" id="doneCount">0</span>
+            <div class="custom-select zone-sort" id="doneSortWrap">
+              <button type="button" class="custom-select-trigger custom-select-trigger--sort" id="doneSortTrigger">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 8L6 20M6 8L3 11M6 8L9 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 16L18 4M18 16L15 13M18 16L21 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span id="doneSortLabel">Новые сначала</span>
+              </button>
+              <div class="custom-select-list" id="doneSortList"></div>
+            </div>
+          </div>
+          <div class="cards-grid" id="doneGrid"></div>
+          <p class="empty-state" id="doneEmpty" hidden>Пока ничего не готово — но всё впереди</p>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <div class="zoom-controls">
+    <button id="zoomIn" title="Приблизить">+</button>
+    <button id="zoomReset" title="Сбросить масштаб">⤾</button>
+    <button id="zoomOut" title="Отдалить">−</button>
+  </div>
+
+  <!-- Detail modal -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" id="detailModal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <div class="modal-head-left">
+          <span class="badge" id="modalSegmentBadge">Женщины 30+</span>
+          <span class="modal-date" id="modalDate"></span>
+        </div>
+        <div class="modal-head-actions">
+          <label class="done-toggle" id="modalDoneToggle" title="Отметить выполненным">
+            <input type="checkbox" id="modalDoneCheckbox">
+            <span class="check-visual">
+              <svg viewBox="0 0 24 24" width="14" height="14"><path d="M4 12.5L9.5 18L20 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/></svg>
+            </span>
+            <span class="done-toggle-text">Выполнено</span>
+          </label>
+          <button class="icon-btn" id="editBtn" title="Редактировать">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 20L4.6 16.7L16.4 4.9C17 4.3 18 4.3 18.6 4.9L19.1 5.4C19.7 6 19.7 7 19.1 7.6L7.3 19.4L4 20Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-btn" id="duplicateBtn" title="Дублировать ролик">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M16 8V6C16 4.9 15.1 4 14 4H6C4.9 4 4 4.9 4 6V14C4 15.1 4.9 16 6 16H8" stroke="currentColor" stroke-width="1.7"/></svg>
+          </button>
+          <button class="icon-btn" id="deleteBtn" title="Удалить">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 7H19M9 7V5C9 4.4 9.4 4 10 4H14C14.6 4 15 4.4 15 5V7M7 7L8 20C8 20.6 8.4 21 9 21H15C15.6 21 16 20.6 16 20L17 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-btn modal-close" id="modalClose" title="Закрыть">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <p class="modal-title-ru" id="modalTitleRu"></p>
+        <p class="modal-summary" id="modalSummary"></p>
+
+        <div class="field-tile">
+          <div class="field-tile-head">
+            <span class="field-icon" title="Название">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M7 8H5.5C4.7 8 4 8.7 4 9.5V13C4 13.8 4.7 14.5 5.5 14.5H6L5 18" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M16 8H14.5C13.7 8 13 8.7 13 9.5V13C13 13.8 13.7 14.5 14.5 14.5H15L14 18" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            </span>
+            <h3>Название (немецкий)</h3>
+            <button class="copy-btn" data-copy-target="modalTitleDe">Копировать</button>
+          </div>
+          <p class="field-tile-text field-tile-text--title" id="modalTitleDe"></p>
+        </div>
+
+        <div class="field-tile">
+          <div class="field-tile-head">
+            <span class="field-icon" title="Обложка">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><circle cx="8.5" cy="10" r="1.5" fill="currentColor"/><path d="M5 17L9.5 12.5L13 15.5L16 12L19 15" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            </span>
+            <h3>Промт для обложки</h3>
+            <button class="copy-btn" data-copy-target="modalThumbPrompt">Копировать</button>
+          </div>
+          <p class="field-tile-text mono" id="modalThumbPrompt"></p>
+        </div>
+
+        <div class="field-tile">
+          <div class="field-tile-head">
+            <span class="field-icon" title="Теги">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M11.5 4H6.5C5.7 4 5 4.7 5 5.5V10.5C5 10.9 5.2 11.3 5.4 11.6L13.4 19.6C14 20.2 15 20.2 15.6 19.6L19.6 15.6C20.2 15 20.2 14 19.6 13.4L11.6 5.4C11.3 5.1 10.9 4.9 10.5 4.9" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor"/></svg>
+            </span>
+            <h3>Теги</h3>
+            <button class="copy-btn" data-copy-target="modalTags">Копировать</button>
+          </div>
+          <div class="tags-wrap" id="modalTags"></div>
+        </div>
+
+        <div class="field-tile">
+          <div class="field-tile-head">
+            <span class="field-icon" title="Описание">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 5H19V16L15 20H5V5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 9H16M8 12.5H16M8 16H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </span>
+            <h3>Описание под видео</h3>
+            <button class="copy-btn" data-copy-target="modalDescription">Копировать</button>
+          </div>
+          <p class="field-tile-text" id="modalDescription"></p>
+        </div>
+
+        <div class="field-tile field-tile--script">
+          <div class="script-toolbar">
+            <div class="script-meta">
+              <span class="field-icon" title="Текст ролика">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="8" width="2" height="8" rx="1" fill="currentColor"/><rect x="7.5" y="4" width="2" height="16" rx="1" fill="currentColor"/><rect x="11.5" y="9.5" width="2" height="5" rx="1" fill="currentColor"/><rect x="15.5" y="6" width="2" height="12" rx="1" fill="currentColor"/><rect x="19.5" y="10" width="2" height="4" rx="1" fill="currentColor"/></svg>
+              </span>
+              <h3>Текст ролика (озвучка)</h3>
+              <span class="script-est" id="scriptEstimate"></span>
+            </div>
+            <div class="script-actions">
+              <button class="copy-btn" id="copyScriptBtn">Скопировать текст</button>
+              <a class="btn btn-accent" id="ttsBtn" href="microsoft-edge:https://edge-tts.com/" target="_blank" rel="noopener">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 9V15H8L13 20V4L8 9H4Z" fill="currentColor"/><path d="M16.5 8.5C17.5 9.5 18 10.7 18 12C18 13.3 17.5 14.5 16.5 15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                Озвучить в Edge TTS
+              </a>
+            </div>
+          </div>
+          <a class="fallback-link" href="https://edge-tts.com/" target="_blank" rel="noopener">откроется не в Edge? обычная ссылка →</a>
+          <pre class="script-text" id="modalScript"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add / Edit panel -->
+  <div class="panel-backdrop" id="panelBackdrop">
+    <aside class="side-panel" id="sidePanel">
+      <div class="panel-head">
+        <div class="panel-head-left">
+          <h2 id="panelTitle">Новый ролик</h2>
+          <button type="button" class="bulk-paste-trigger" id="bulkPasteToggle" title="Вставить одним текстом по шаблону">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="5" y="3" width="14" height="18" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 8H15.5M8.5 12H15.5M8.5 16H12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span>Вставить текстом</span>
+          </button>
+          <button type="button" class="bulk-paste-trigger bulk-paste-trigger--square" id="bulkPasteCopyTemplate" title="Скопировать шаблон">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M16 8V6C16 4.9 15.1 4 14 4H6C4.9 4 4 4.9 4 6V14C4 15.1 4.9 16 6 16H8" stroke="currentColor" stroke-width="1.7"/></svg>
+          </button>
+        </div>
+        <button class="icon-btn" id="panelClose">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="bulk-paste" id="bulkPasteSection">
+        <div class="bulk-paste-inner">
+          <p class="bulk-paste-hint">Вставь текст по шаблону с метками — поля заполнятся сами. Если группы из [группа] ещё нет — она создастся автоматически.</p>
+          <textarea id="bulkPasteInput" rows="14" placeholder="[группа]
+&#10;[название]
+&#10;[перевод]
+&#10;[суть]
+&#10;[обложка]
+&#10;[теги]
+&#10;[описание]
+&#10;[текст]"></textarea>
+          <div class="bulk-paste-actions">
+            <button type="button" class="btn btn-ghost" id="bulkPasteCancel">Скрыть</button>
+            <button type="button" class="btn btn-primary" id="bulkPasteApply">Разобрать и заполнить</button>
+          </div>
+        </div>
+      </div>
+
+      <form id="videoForm" class="video-form">
+        <input type="hidden" id="fieldId">
+
+        <label>
+          <span>Группа / тематика</span>
+          <div class="custom-select" id="fieldGroupWrap">
+            <button type="button" class="custom-select-trigger" id="fieldGroupTrigger">
+              <span class="grp-dot" id="fieldGroupDot"></span>
+              <span id="fieldGroupLabel">Выбрать группу</span>
+              <svg class="chevron" width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="custom-select-list" id="fieldGroupList"></div>
+          </div>
+          <input type="hidden" id="fieldGroup">
+        </label>
+
+        <label>Название (немецкий, кликбейт)
+          <textarea id="fieldTitleDe" rows="2" required placeholder="„Zitat" — sagte X. Y Jahre später…"></textarea>
+        </label>
+
+        <label>Перевод названия (русский)
+          <textarea id="fieldTitleRu" rows="2" placeholder="Перевод сути заголовка"></textarea>
+        </label>
+
+        <label>Суть на русском (кратко)
+          <textarea id="fieldSummaryRu" rows="3" placeholder="2-4 предложения о чём ролик"></textarea>
+        </label>
+
+        <label>Промт для обложки
+          <textarea id="fieldThumbPrompt" rows="3" placeholder="cinematic dramatic portrait, …"></textarea>
+        </label>
+
+        <label>Теги (через запятую)
+          <textarea id="fieldTags" rows="2" placeholder="wahre geschichten, schicksal, …"></textarea>
+        </label>
+
+        <label>Описание под видео (немецкий)
+          <textarea id="fieldDescription" rows="4" placeholder="Текст описания на YouTube"></textarea>
+        </label>
+
+        <label>Полный текст ролика (немецкий, для озвучки)
+          <textarea id="fieldScript" rows="14" required placeholder="Полный текст сценария на немецком…"></textarea>
+        </label>
+
+        <div class="panel-actions">
+          <button type="button" class="btn btn-ghost" id="panelCancel">Отмена</button>
+          <button type="submit" class="btn btn-primary">Сохранить</button>
+        </div>
+      </form>
+    </aside>
+  </div>
+
+  <!-- Модалка управления группами -->
+  <div class="modal-backdrop" id="groupsModalBackdrop">
+    <div class="modal" id="groupsModal" style="margin:auto;width:min(420px,92%);max-height:min(80vh,600px);">
+      <div class="modal-head">
+        <span style="font-weight:800;font-size:15px;">Группы / тематики</span>
+        <button class="icon-btn modal-close" id="groupsModalClose" title="Закрыть">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="groups-list" id="groupsList"></div>
+        <div class="new-group-form">
+          <span class="new-group-label">Создать новую</span>
+          <input type="text" id="newGroupName" placeholder="Название группы, например «Подростки 16-19»">
+          <div class="color-swatches" id="colorSwatches"></div>
+          <button type="button" class="btn btn-primary btn-block" id="addGroupBtn">+ Добавить группу</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+  <div class="confetti-layer" id="confettiLayer" aria-hidden="true"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

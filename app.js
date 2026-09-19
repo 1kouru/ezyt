@@ -1,0 +1,1665 @@
+/* ==========================================================================
+   Schicksal Studio (ezyt.) — логика приложения
+   Хранение: localStorage (видео, группы, тема, звук).
+   ========================================================================== */
+
+(function () {
+  'use strict';
+
+  const SOUND_KEY = 'ytStudioSound';
+  const GROUP_COLORS = ['blue', 'purple', 'teal', 'pink', 'amber', 'green'];
+
+  // список проектов и текущий выбранный — свои у каждого аккаунта
+  function currentUsername() {
+    const u = Auth.currentUser();
+    return u ? u.username : 'guest';
+  }
+  function workspacesKey() { return 'ytStudioWorkspaces::' + currentUsername(); }
+  function activeWorkspaceStorageKey() { return 'ytStudioActiveWorkspace::' + currentUsername(); }
+  function videosKey(wsId) { return 'ytStudioVideos::' + wsId; }
+  function groupsKey(wsId) { return 'ytStudioGroups::' + wsId; }
+
+  let workspaces = [];
+  let activeWorkspaceId = null;
+
+  const SORT_OPTIONS = [
+    { id: 'new', label: 'Новые сначала' },
+    { id: 'old', label: 'Старые сначала' },
+    { id: 'az', label: 'По алфавиту (DE)' },
+    { id: 'group', label: 'По группам' },
+  ];
+
+  /** @type {Array<Object>} */
+  let videos = [];
+  /** @type {Array<{id:string,name:string,color:string}>} */
+  let groups = [];
+  let currentGroupId = 'all';
+  let currentSearch = '';
+  let activeSort = 'new';
+  let doneSort = 'new';
+  let openVideoId = null;
+  let isFirstRender = true;
+  let newGroupSelectedColor = GROUP_COLORS[0];
+  let pendingGroupTargetForForm = false;
+
+  // ------------------------------------------------------------------ звук
+
+  const AudioFX = (function () {
+    let ctx = null;
+    let enabled = true;
+    try { enabled = localStorage.getItem(SOUND_KEY) !== 'off'; } catch (e) {}
+
+    function getCtx() {
+      if (!ctx) {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return null;
+        ctx = new Ctor();
+      }
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      return ctx;
+    }
+
+    function tone(freq, duration, type, gainPeak, when) {
+      if (!enabled) return;
+      const c = getCtx();
+      if (!c) return;
+      const t0 = c.currentTime + (when || 0);
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(gainPeak || 0.04, t0 + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+      osc.connect(gain);
+      gain.connect(c.destination);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.02);
+    }
+
+    return {
+      click() { tone(720, 0.06, 'sine', 0.03); },
+      open() { tone(440, 0.08, 'sine', 0.035); tone(660, 0.09, 'sine', 0.028, 0.03); },
+      close() { tone(360, 0.08, 'sine', 0.03); },
+      success() { tone(523.25, 0.09, 'sine', 0.045); tone(659.25, 0.1, 'sine', 0.04, 0.07); tone(783.99, 0.18, 'sine', 0.04, 0.15); },
+      undo() { tone(392, 0.09, 'sine', 0.03); tone(277, 0.13, 'sine', 0.026, 0.05); },
+      add() { tone(587.33, 0.08, 'sine', 0.035); tone(880, 0.13, 'sine', 0.035, 0.06); },
+      delete() { tone(300, 0.1, 'triangle', 0.03); tone(180, 0.16, 'triangle', 0.025, 0.06); },
+      hover() { tone(880, 0.045, 'sine', 0.012); },
+      toggle(v) {
+        enabled = v;
+        try { localStorage.setItem(SOUND_KEY, v ? 'on' : 'off'); } catch (e) {}
+        if (v) tone(600, 0.06, 'sine', 0.03);
+      },
+      isEnabled() { return enabled; },
+    };
+  })();
+
+  // ---------------------------------------------------------------- группы
+
+  function loadGroups() {
+    try {
+      const raw = localStorage.getItem(groupsKey(activeWorkspaceId));
+      if (raw) { groups = JSON.parse(raw); return; }
+    } catch (e) {}
+    groups = [];
+  }
+
+  function saveGroups() {
+    try { localStorage.setItem(groupsKey(activeWorkspaceId), JSON.stringify(groups)); } catch (e) {}
+  }
+
+  function groupById(id) { return groups.find((g) => g.id === id); }
+
+  function groupUid() {
+    return 'grp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  function grpStyle(group) {
+    const color = (group && group.color) || 'blue';
+    return `--grp-c:var(--${color})`;
+  }
+
+  // ---------------------------------------------------------------- проекты (workspaces)
+  // Каждый проект — своя независимая пара "видео + группы", хранится под собственным
+  // ключом. Список проектов и текущий выбранный — отдельные для каждого аккаунта.
+
+  function workspaceUid() {
+    return 'ws_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  function loadWorkspaces() {
+    try {
+      const raw = localStorage.getItem(workspacesKey());
+      if (raw) workspaces = JSON.parse(raw);
+    } catch (e) {}
+
+    if (!workspaces || !workspaces.length) {
+      // первый вход этого аккаунта — сразу создаём проект по умолчанию
+      const mainWs = { id: workspaceUid(), name: 'Main', color: 'blue', createdAt: Date.now() };
+      workspaces = [mainWs];
+      saveWorkspaces();
+    }
+
+    try { activeWorkspaceId = localStorage.getItem(activeWorkspaceStorageKey()); } catch (e) {}
+    if (!activeWorkspaceId || !workspaces.some((w) => w.id === activeWorkspaceId)) {
+      activeWorkspaceId = workspaces[0].id;
+    }
+  }
+
+  function saveWorkspaces() {
+    try { localStorage.setItem(workspacesKey(), JSON.stringify(workspaces)); } catch (e) {}
+  }
+
+  function setActiveWorkspace(id) {
+    activeWorkspaceId = id;
+    try { localStorage.setItem(activeWorkspaceStorageKey(), id); } catch (e) {}
+  }
+
+  function workspaceById(id) { return workspaces.find((w) => w.id === id); }
+
+  function switchWorkspace(id) {
+    if (id === activeWorkspaceId) return; // уже открыт — панель специально не закрываем
+    closeModal(); closePanel(); closeGroupsModal();
+
+    // короткое затухание поля при смене проекта — иначе контент мгновенно
+    // подменяется под курсором и ощущается как рывок, а не переключение
+    const canvasInnerEl = document.getElementById('canvasInner');
+    canvasInnerEl.classList.add('is-switching');
+
+    setTimeout(() => {
+      setActiveWorkspace(id);
+      currentGroupId = 'all';
+      currentSearch = '';
+      activeSort = 'new'; doneSort = 'new';
+      searchInputEl.value = '';
+      searchClearBtn.hidden = true;
+      isFirstRender = true;
+      loadGroups();
+      loadVideos();
+      render();
+      renderWorkspaceList();
+      updateWorkspacePeekIndicator();
+      requestAnimationFrame(() => canvasInnerEl.classList.remove('is-switching'));
+    }, 160);
+
+    // панель специально остаётся открытой после переключения — можно сразу
+    // посмотреть, что лежит в выбранном проекте, закроется по уходу курсора.
+    AudioFX.open();
+  }
+
+  // ---------------------------------------------------------------- storage
+
+  function loadVideos() {
+    try {
+      const raw = localStorage.getItem(videosKey(activeWorkspaceId));
+      videos = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      videos = [];
+    }
+    let migrated = false;
+    videos.forEach((v) => {
+      if (!groupById(v.groupId) && groups[0]) { v.groupId = groups[0].id; migrated = true; }
+      if (!v.createdAt) { v.createdAt = Date.now(); migrated = true; }
+    });
+    if (migrated) saveVideos();
+  }
+
+  function saveVideos() {
+    try { localStorage.setItem(videosKey(activeWorkspaceId), JSON.stringify(videos)); }
+    catch (e) { showToast('Не удалось сохранить в localStorage', 'warn'); }
+  }
+
+  function uid() {
+    return 'v_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  }
+
+  // ------------------------------------------------------------------ кастомное окно подтверждения
+  // (вместо системного window.confirm, который нельзя стилизовать под тему)
+
+  const confirmBackdrop = document.getElementById('confirmBackdrop');
+  const confirmTitleEl = document.getElementById('confirmTitle');
+  const confirmMessageEl = document.getElementById('confirmMessage');
+  const confirmOkBtn = document.getElementById('confirmOkBtn');
+  const confirmCancelBtn = document.getElementById('confirmCancelBtn');
+  let confirmResolver = null;
+
+  function showConfirm(opts) {
+    confirmTitleEl.textContent = opts.title || 'Вы уверены?';
+    confirmMessageEl.textContent = opts.message || '';
+    confirmOkBtn.textContent = opts.confirmLabel || 'Удалить';
+    confirmBackdrop.classList.add('is-open');
+    AudioFX.open();
+    return new Promise((resolve) => { confirmResolver = resolve; });
+  }
+  function closeConfirm(result) {
+    confirmBackdrop.classList.remove('is-open');
+    if (confirmResolver) { confirmResolver(result); confirmResolver = null; }
+  }
+  confirmOkBtn.addEventListener('click', () => { AudioFX.delete(); closeConfirm(true); });
+  confirmCancelBtn.addEventListener('click', () => { AudioFX.close(); closeConfirm(false); });
+  confirmBackdrop.addEventListener('click', (e) => { if (e.target === confirmBackdrop) closeConfirm(false); });
+
+  // ------------------------------------------------------------------ утилиты
+
+  function escapeHtml(str) {
+    return String(str || '').replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  function wordCount(text) {
+    return (text || '').trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  // ~300 слов/мин — под этот темп 40 минут выходит примерно на 11 500-12 000 слов
+  function estimateMinutes(text) {
+    return Math.max(1, Math.round(wordCount(text) / 300));
+  }
+
+  function formatDate(ts) {
+    try {
+      return new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    } catch (e) { return ''; }
+  }
+
+  function pluralRu(n, one, few, many) {
+    const mod10 = n % 10, mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return one;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+    return many;
+  }
+
+  function formatRelativeDate(ts) {
+    if (!ts) return '';
+    const diffSec = Math.floor((Date.now() - ts) / 1000);
+    if (diffSec < 45) return 'только что';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin} ${pluralRu(diffMin, 'минуту', 'минуты', 'минут')} назад`;
+    const diffHour = Math.floor(diffMin / 60);
+    if (diffHour < 24) return `${diffHour} ${pluralRu(diffHour, 'час', 'часа', 'часов')} назад`;
+    const diffDay = Math.floor(diffHour / 24);
+    if (diffDay === 1) return 'вчера';
+    if (diffDay === 2) return 'позавчера';
+    if (diffDay < 7) return `${diffDay} ${pluralRu(diffDay, 'день', 'дня', 'дней')} назад`;
+    const diffWeek = Math.floor(diffDay / 7);
+    if (diffDay < 30) return diffWeek === 1 ? 'неделю назад' : `${diffWeek} ${pluralRu(diffWeek, 'неделю', 'недели', 'недель')} назад`;
+    const diffMonth = Math.floor(diffDay / 30);
+    if (diffDay < 365) return diffMonth === 1 ? 'месяц назад' : `${diffMonth} ${pluralRu(diffMonth, 'месяц', 'месяца', 'месяцев')} назад`;
+    const diffYear = Math.floor(diffDay / 365);
+    return diffYear === 1 ? 'год назад' : `${diffYear} ${pluralRu(diffYear, 'год', 'года', 'лет')} назад`;
+  }
+
+  // ------------------------------------------------------------------ фильтр + сортировка
+
+  function matchesFilter(v) {
+    if (currentGroupId !== 'all' && v.groupId !== currentGroupId) return false;
+    if (currentSearch) {
+      const hay = (v.titleDe + ' ' + v.titleRu + ' ' + (v.summaryRu || '')).toLowerCase();
+      if (!hay.includes(currentSearch)) return false;
+    }
+    return true;
+  }
+
+  function sortVideos(list, sortId) {
+    const arr = list.slice();
+    if (sortId === 'new') arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    else if (sortId === 'old') arr.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    else if (sortId === 'az') arr.sort((a, b) => (a.titleDe || '').localeCompare(b.titleDe || '', 'de'));
+    else if (sortId === 'group') {
+      arr.sort((a, b) => {
+        const ga = groups.findIndex((g) => g.id === a.groupId);
+        const gb = groups.findIndex((g) => g.id === b.groupId);
+        if (ga !== gb) return ga - gb;
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      });
+    }
+    return arr;
+  }
+
+  // ------------------------------------------------------------------ рендер сегмент-фильтра
+
+  const segmentFilterWrap = document.getElementById('segmentFilterWrap');
+  const segmentFilterTrigger = document.getElementById('segmentFilterTrigger');
+  const segmentFilterList = document.getElementById('segmentFilterList');
+  const segmentFilterLabel = document.getElementById('segmentFilterLabel');
+  const segmentFilterCount = document.getElementById('segmentFilterCount');
+  const segmentFilterDot = document.getElementById('segmentFilterDot');
+
+  function renderSegmentFilter() {
+    const allCount = videos.length;
+
+    if (currentGroupId === 'all') {
+      segmentFilterLabel.textContent = 'Все';
+      segmentFilterCount.textContent = allCount;
+      segmentFilterDot.hidden = true;
+    } else {
+      const active = groupById(currentGroupId);
+      if (active) {
+        segmentFilterLabel.textContent = active.name;
+        segmentFilterCount.textContent = videos.filter((v) => v.groupId === active.id).length;
+        segmentFilterDot.hidden = false;
+        segmentFilterDot.style.background = `var(--${active.color})`;
+      }
+    }
+
+    let html = `<div class="custom-select-option${currentGroupId === 'all' ? ' is-active' : ''}" data-group="all">Все <span class="seg-count">${allCount}</span></div>`;
+    groups.forEach((g) => {
+      const count = videos.filter((v) => v.groupId === g.id).length;
+      html += `<div class="custom-select-option${currentGroupId === g.id ? ' is-active' : ''}" data-group="${g.id}">
+        <span class="grp-dot" style="background:var(--${g.color})"></span>${escapeHtml(g.name)} <span class="seg-count">${count}</span>
+      </div>`;
+    });
+    segmentFilterList.innerHTML = html;
+  }
+
+  segmentFilterTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = !segmentFilterWrap.classList.contains('is-open');
+    closeAllCustomSelects();
+    if (willOpen) { AudioFX.click(); segmentFilterWrap.classList.add('is-open'); }
+  });
+  segmentFilterList.addEventListener('click', (e) => {
+    const opt = e.target.closest('.custom-select-option');
+    if (!opt) return;
+    currentGroupId = opt.dataset.group;
+    AudioFX.click();
+    closeCustomSelect(segmentFilterWrap);
+    renderSegmentFilter();
+    render();
+  });
+
+  // ------------------------------------------------------------------ рендер карточек
+
+  const activeGrid = document.getElementById('activeGrid');
+  const doneGrid = document.getElementById('doneGrid');
+  const activeEmpty = document.getElementById('activeEmpty');
+  const doneEmpty = document.getElementById('doneEmpty');
+  const activeCountEl = document.getElementById('activeCount');
+  const doneCountEl = document.getElementById('doneCount');
+  const statsBar = document.getElementById('statsBar');
+
+  function cardHtml(v, enterDelay) {
+    const g = groupById(v.groupId) || groups[0] || { name: '—', color: 'blue' };
+    const styleAttr = enterDelay != null ? `${grpStyle(g)};animation-delay:${enterDelay}ms` : grpStyle(g);
+    // заголовок на карточке — русский перевод крупным текстом, немецкий оригинал — мелкой подписью
+    return `
+      <article class="card${isFirstRender ? ' card-enter' : ''}${v.done ? ' is-done' : ''}" data-id="${v.id}" style="${styleAttr}">
+        <div class="card-top">
+          <div class="card-top-left">
+            <span class="badge"><span class="grp-dot"></span>${escapeHtml(g.name)}</span>
+            <span class="card-date" title="${formatDate(v.createdAt)}">${formatRelativeDate(v.createdAt)}</span>
+          </div>
+          <div class="card-actions">
+            <button class="card-delete" data-action="delete-card" title="Удалить ролик">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 7H19M9 7V5C9 4.4 9.4 4 10 4H14C14.6 4 15 4.4 15 5V7M7 7L8 20C8 20.6 8.4 21 9 21H15C15.6 21 16 20.6 16 20L17 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <span class="check" data-action="toggle-done" title="Отметить выполненным">
+              <svg viewBox="0 0 24 24" width="13" height="13"><path d="M4 12.5L9.5 18L20 6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/></svg>
+            </span>
+          </div>
+        </div>
+        <h3 class="card-title-de">${escapeHtml(v.titleRu)}</h3>
+        <p class="card-title-ru">${escapeHtml(v.summaryRu || v.titleDe)}</p>
+        <div class="card-bottom">
+          <span class="card-meta">~${estimateMinutes(v.script)} мин · ${wordCount(v.script).toLocaleString('ru-RU')} слов</span>
+        </div>
+      </article>`;
+  }
+
+  function render() {
+    const active = sortVideos(videos.filter((v) => !v.done && matchesFilter(v)), activeSort);
+    const done = sortVideos(videos.filter((v) => v.done && matchesFilter(v)), doneSort);
+
+    activeGrid.innerHTML = active.map((v, i) => cardHtml(v, isFirstRender ? i * 45 : null)).join('');
+    doneGrid.innerHTML = done.map((v, i) => cardHtml(v, isFirstRender ? i * 45 : null)).join('');
+
+    activeEmpty.hidden = active.length !== 0;
+    doneEmpty.hidden = done.length !== 0;
+
+    activeCountEl.textContent = active.length;
+    doneCountEl.textContent = done.length;
+
+    renderStats();
+    renderSegmentFilter();
+
+    if (isFirstRender) {
+      // класс входной анимации нужно снять после её окончания — иначе
+      // animation-fill-mode:both держит transform "залипшим" навсегда,
+      // и hover у этих карточек перестаёт визуально работать
+      document.querySelectorAll('.card.card-enter').forEach((el) => {
+        el.addEventListener('animationend', () => el.classList.remove('card-enter'), { once: true });
+      });
+    }
+    isFirstRender = false;
+  }
+
+  function renderStats() {
+    const total = videos.length;
+    const done = videos.filter((v) => v.done).length;
+    statsBar.innerHTML = `<b>${total}</b> роликов <span class="dot">·</span> <b>${done}</b> готово`;
+  }
+
+  // ------------------------------------------------------------------ клики по карточкам (делегирование)
+
+  // непринуждённый звук при наведении на карточку ролика (срабатывает
+  // один раз на карточку, а не на каждый пиксель движения мыши внутри)
+  let lastHoveredCardId = null;
+  document.getElementById('viewport').addEventListener('pointerover', (e) => {
+    const card = e.target.closest('.card');
+    const cardId = card ? card.dataset.id : null;
+    if (cardId && cardId !== lastHoveredCardId) AudioFX.hover();
+    lastHoveredCardId = cardId;
+  });
+
+  document.getElementById('viewport').addEventListener('click', (e) => {
+    if (dragThresholdExceeded) return; // клик после реального перетаскивания поля игнорируем
+    const card = e.target.closest('.card');
+    if (!card) return;
+    const id = card.dataset.id;
+
+    if (e.target.closest('.check')) { e.stopPropagation(); toggleDone(id, card); return; }
+    if (e.target.closest('.card-delete')) { e.stopPropagation(); quickDelete(id); return; }
+    openModal(id);
+  });
+
+  async function quickDelete(id) {
+    const v = videos.find((x) => x.id === id);
+    if (!v) return;
+    const ok = await showConfirm({ title: 'Удалить ролик?', message: `«${v.titleRu || v.titleDe}» будет удалён без возможности восстановления.` });
+    if (!ok) return;
+    videos = videos.filter((x) => x.id !== id);
+    saveVideos();
+    AudioFX.delete();
+    showToast('Ролик удалён');
+    render();
+  }
+
+  // ------------------------------------------------------------------ toggle done + FLIP-анимация + confetti
+
+  function toggleDone(id, cardEl) {
+    const video = videos.find((v) => v.id === id);
+    if (!video) return;
+
+    const oldRect = cardEl.getBoundingClientRect();
+    const centerX = oldRect.left + oldRect.width / 2;
+    const centerY = oldRect.top + oldRect.height / 2;
+
+    video.done = !video.done;
+    saveVideos();
+
+    if (video.done) { spawnConfetti(centerX, centerY); AudioFX.success(); }
+    else { AudioFX.undo(); }
+
+    render();
+
+    const newCardEl = document.querySelector(`.card[data-id="${id}"]`);
+    if (newCardEl) {
+      const newRect = newCardEl.getBoundingClientRect();
+      const dx = oldRect.left - newRect.left;
+      const dy = oldRect.top - newRect.top;
+      newCardEl.style.animation = 'none';
+      newCardEl.style.transition = 'none';
+      newCardEl.style.transform = `translate(${dx}px, ${dy}px) scale(1.04)`;
+      newCardEl.style.opacity = '0.55';
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          newCardEl.style.transition = 'transform .55s var(--ease-bounce), opacity .4s ease';
+          newCardEl.style.transform = 'translate(0,0) scale(1)';
+          newCardEl.style.opacity = '1';
+          newCardEl.classList.add('card--completing');
+          setTimeout(() => {
+            newCardEl.style.transition = '';
+            newCardEl.style.transform = '';
+            newCardEl.style.animation = '';
+            newCardEl.classList.remove('card--completing');
+          }, 620);
+        });
+      });
+    }
+
+    if (video.done) showToast('Готово! 🎉 Ролик уехал вниз');
+  }
+
+  function spawnConfetti(x, y) {
+    const layer = document.getElementById('confettiLayer');
+    const colors = ['#46c8ff', '#a875ff', '#4f7fff', '#ffffff'];
+    for (let i = 0; i < 18; i++) {
+      const piece = document.createElement('span');
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 60 + Math.random() * 110;
+      const dx = Math.cos(angle) * dist;
+      const dy = Math.sin(angle) * dist - 40;
+      piece.className = 'confetti-piece';
+      piece.style.left = x + 'px';
+      piece.style.top = y + 'px';
+      piece.style.width = (4 + Math.random() * 5) + 'px';
+      piece.style.height = (4 + Math.random() * 5) + 'px';
+      piece.style.background = colors[i % colors.length];
+      piece.style.setProperty('--dx', dx + 'px');
+      piece.style.setProperty('--dy', (dy + 160) + 'px');
+      piece.style.setProperty('--rot', (Math.random() * 480 - 240) + 'deg');
+      layer.appendChild(piece);
+      piece.addEventListener('animationend', () => piece.remove());
+    }
+  }
+
+  // ------------------------------------------------------------------ модалка
+
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const modalTitleDe = document.getElementById('modalTitleDe');
+  const modalTitleRu = document.getElementById('modalTitleRu');
+  const modalSegmentBadge = document.getElementById('modalSegmentBadge');
+  const modalDate = document.getElementById('modalDate');
+  const modalSummary = document.getElementById('modalSummary');
+  const modalThumbPrompt = document.getElementById('modalThumbPrompt');
+  const modalTags = document.getElementById('modalTags');
+  const modalDescription = document.getElementById('modalDescription');
+  const modalScript = document.getElementById('modalScript');
+  const scriptEstimate = document.getElementById('scriptEstimate');
+  const modalDoneCheckbox = document.getElementById('modalDoneCheckbox');
+  const ttsBtn = document.getElementById('ttsBtn');
+
+  function openModal(id) {
+    const v = videos.find((x) => x.id === id);
+    if (!v) return;
+    openVideoId = id;
+    const g = groupById(v.groupId) || groups[0] || { name: '—', color: 'blue' };
+
+    modalSegmentBadge.innerHTML = `<span class="grp-dot"></span>${escapeHtml(g.name)}`;
+    modalSegmentBadge.className = 'badge';
+    modalSegmentBadge.setAttribute('style', grpStyle(g));
+    modalDate.textContent = formatRelativeDate(v.createdAt);
+    modalDate.title = formatDate(v.createdAt);
+    // в модалке — оба варианта заголовка, немецкий (рабочий) первым, ниже перевод
+    modalTitleDe.textContent = v.titleDe;
+    modalTitleRu.textContent = v.titleRu;
+    modalSummary.textContent = v.summaryRu || '—';
+    modalThumbPrompt.textContent = v.thumbnailPrompt || '—';
+    modalDescription.textContent = v.description || '—';
+    modalScript.textContent = v.script || '—';
+    scriptEstimate.textContent = `~${wordCount(v.script).toLocaleString('ru-RU')} слов · ≈${estimateMinutes(v.script)} мин при обычном темпе`;
+    modalDoneCheckbox.checked = !!v.done;
+
+    modalTags.innerHTML = (v.tags || []).map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('');
+
+    ttsBtn.dataset.script = v.script || '';
+
+    modalBackdrop.classList.add('is-open');
+    AudioFX.open();
+  }
+
+  function closeModal() {
+    if (!modalBackdrop.classList.contains('is-open')) return;
+    modalBackdrop.classList.remove('is-open');
+    openVideoId = null;
+    AudioFX.close();
+  }
+
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeModal(); closePanel(); closeGroupsModal(); toggleHelp(false);
+      closeAllCustomSelects();
+      workspacePinned = false;
+      workspacePin.classList.remove('is-active');
+      closeWorkspacePanel();
+      return;
+    }
+
+    const typingInField = e.target.closest('input, textarea, [contenteditable="true"]');
+
+    // "/" — быстро прыгнуть в поиск, если сейчас не печатаешь в другом поле
+    if (e.key === '/' && !typingInField) {
+      e.preventDefault();
+      searchInputEl.focus();
+      return;
+    }
+
+    // Ctrl/Cmd+N — новый ролик, откуда угодно
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n' && !typingInField) {
+      e.preventDefault();
+      openPanel(null);
+    }
+  });
+
+  modalDoneCheckbox.addEventListener('change', () => {
+    if (!openVideoId) return;
+    const cardEl = document.querySelector(`.card[data-id="${openVideoId}"]`);
+    if (cardEl) toggleDone(openVideoId, cardEl);
+    else {
+      const v = videos.find((x) => x.id === openVideoId);
+      if (v) { v.done = modalDoneCheckbox.checked; saveVideos(); render(); }
+    }
+  });
+
+  document.querySelectorAll('.copy-btn[data-copy-target]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.copyTarget;
+      const el = document.getElementById(targetId);
+      const text = targetId === 'modalTags'
+        ? Array.from(el.querySelectorAll('.tag-chip')).map((c) => c.textContent).join(', ')
+        : el.textContent;
+      copyText(text, btn);
+    });
+  });
+
+  document.getElementById('copyScriptBtn').addEventListener('click', (e) => {
+    copyText(modalScript.textContent, e.currentTarget);
+  });
+
+  function copyText(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      AudioFX.click();
+      if (btn) {
+        // у кнопок-иконок (без текста) просто подсвечиваем класс — подмена
+        // textContent стёрла бы саму иконку и не восстановила бы её обратно
+        const isIconOnly = !!btn.querySelector('svg');
+        btn.classList.add('is-copied');
+        if (isIconOnly) {
+          setTimeout(() => btn.classList.remove('is-copied'), 1600);
+        } else {
+          const original = btn.textContent;
+          btn.textContent = 'Скопировано ✓';
+          setTimeout(() => { btn.textContent = original; btn.classList.remove('is-copied'); }, 1600);
+        }
+      }
+      showToast('Скопировано в буфер обмена');
+    }).catch(() => showToast('Не удалось скопировать', 'warn'));
+  }
+
+  ttsBtn.addEventListener('click', () => {
+    const script = ttsBtn.dataset.script || '';
+    if (script) {
+      navigator.clipboard.writeText(script).catch(() => {});
+      showToast('Текст сценария скопирован — вставь его на edge-tts.com');
+    }
+  });
+
+  document.getElementById('deleteBtn').addEventListener('click', async () => {
+    if (!openVideoId) return;
+    const v = videos.find((x) => x.id === openVideoId);
+    if (!v) return;
+    const ok = await showConfirm({ title: 'Удалить ролик?', message: `«${v.titleRu || v.titleDe}» будет удалён без возможности восстановления.` });
+    if (!ok) return;
+    videos = videos.filter((x) => x.id !== openVideoId);
+    saveVideos();
+    closeModal();
+    render();
+    AudioFX.delete();
+    showToast('Ролик удалён');
+  });
+
+  // ------------------------------------------------------------------ универсальный кастомный select
+
+  function closeCustomSelect(wrap) { if (wrap) wrap.classList.remove('is-open'); }
+  function closeAllCustomSelects(except) {
+    [fieldGroupWrap, activeSortWrap, doneSortWrap, segmentFilterWrap].forEach((w) => { if (w && w !== except) closeCustomSelect(w); });
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.custom-select')) closeAllCustomSelects();
+  });
+
+  // --- селект группы в форме ролика ---
+  const fieldGroupWrap = document.getElementById('fieldGroupWrap');
+  const fieldGroupTrigger = document.getElementById('fieldGroupTrigger');
+  const fieldGroupList = document.getElementById('fieldGroupList');
+  const fieldGroupLabel = document.getElementById('fieldGroupLabel');
+  const fieldGroupDot = document.getElementById('fieldGroupDot');
+  const fieldGroupInput = document.getElementById('fieldGroup');
+
+  function populateGroupSelect(selectedId) {
+    const sel = selectedId && groupById(selectedId) ? selectedId : (groups[0] && groups[0].id);
+    fieldGroupInput.value = sel || '';
+    const g = groupById(sel);
+    if (g) {
+      fieldGroupLabel.textContent = g.name;
+      fieldGroupDot.style.background = `var(--${g.color})`;
+    }
+    const optionsHtml = groups.map((gr) => `
+      <div class="custom-select-option${gr.id === sel ? ' is-active' : ''}" data-id="${gr.id}">
+        <span class="grp-dot" style="background:var(--${gr.color})"></span>${escapeHtml(gr.name)}
+      </div>`).join('');
+    const addOptionHtml = `<div class="custom-select-option custom-select-option--add" data-action="create-group">+ Добавить группу</div>`;
+    fieldGroupList.innerHTML = optionsHtml + addOptionHtml;
+  }
+
+  fieldGroupTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = !fieldGroupWrap.classList.contains('is-open');
+    closeAllCustomSelects();
+    if (willOpen) { AudioFX.click(); fieldGroupWrap.classList.add('is-open'); }
+  });
+  fieldGroupList.addEventListener('click', (e) => {
+    const opt = e.target.closest('.custom-select-option');
+    if (!opt) return;
+    closeCustomSelect(fieldGroupWrap);
+    AudioFX.click();
+    if (opt.dataset.action === 'create-group') {
+      pendingGroupTargetForForm = true;
+      openGroupsModal();
+      return;
+    }
+    populateGroupSelect(opt.dataset.id);
+  });
+
+  // --- селекты сортировки: независимые для "В работе" и "Готово" ---
+  function wireZoneSort(prefix, getSort, setSort) {
+    const wrap = document.getElementById(prefix + 'SortWrap');
+    const trigger = document.getElementById(prefix + 'SortTrigger');
+    const list = document.getElementById(prefix + 'SortList');
+    const label = document.getElementById(prefix + 'SortLabel');
+
+    function renderList() {
+      list.innerHTML = SORT_OPTIONS.map((o) => `
+        <div class="custom-select-option${o.id === getSort() ? ' is-active' : ''}" data-id="${o.id}">${escapeHtml(o.label)}</div>`).join('');
+    }
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willOpen = !wrap.classList.contains('is-open');
+      closeAllCustomSelects();
+      if (willOpen) { AudioFX.click(); renderList(); wrap.classList.add('is-open'); }
+    });
+    list.addEventListener('click', (e) => {
+      const opt = e.target.closest('.custom-select-option');
+      if (!opt) return;
+      setSort(opt.dataset.id);
+      label.textContent = SORT_OPTIONS.find((o) => o.id === opt.dataset.id).label;
+      closeCustomSelect(wrap);
+      AudioFX.click();
+      render();
+    });
+    return wrap;
+  }
+
+  const activeSortWrap = wireZoneSort('active', () => activeSort, (v) => { activeSort = v; });
+  const doneSortWrap = wireZoneSort('done', () => doneSort, (v) => { doneSort = v; });
+
+  // ------------------------------------------------------------------ панель добавления / редактирования ролика
+
+  const panelBackdrop = document.getElementById('panelBackdrop');
+  const panelTitle = document.getElementById('panelTitle');
+  const videoForm = document.getElementById('videoForm');
+  const fields = {
+    id: document.getElementById('fieldId'),
+    titleDe: document.getElementById('fieldTitleDe'),
+    titleRu: document.getElementById('fieldTitleRu'),
+    summaryRu: document.getElementById('fieldSummaryRu'),
+    thumbPrompt: document.getElementById('fieldThumbPrompt'),
+    tags: document.getElementById('fieldTags'),
+    description: document.getElementById('fieldDescription'),
+    script: document.getElementById('fieldScript'),
+  };
+
+  function openPanel(video) {
+    populateGroupSelect(video ? video.groupId : (currentGroupId !== 'all' ? currentGroupId : (groups[0] && groups[0].id)));
+    if (video) {
+      panelTitle.textContent = 'Редактировать ролик';
+      fields.id.value = video.id;
+      fields.titleDe.value = video.titleDe || '';
+      fields.titleRu.value = video.titleRu || '';
+      fields.summaryRu.value = video.summaryRu || '';
+      fields.thumbPrompt.value = video.thumbnailPrompt || '';
+      fields.tags.value = (video.tags || []).join(', ');
+      fields.description.value = video.description || '';
+      fields.script.value = video.script || '';
+    } else {
+      panelTitle.textContent = 'Новый ролик';
+      videoForm.reset();
+      fields.id.value = '';
+      populateGroupSelect(currentGroupId !== 'all' ? currentGroupId : (groups[0] && groups[0].id));
+    }
+    panelBackdrop.classList.add('is-open');
+    if (bulkPasteSection) bulkPasteSection.classList.remove('is-open');
+    AudioFX.open();
+  }
+
+  function closePanel() {
+    if (!panelBackdrop.classList.contains('is-open')) return;
+    panelBackdrop.classList.remove('is-open');
+    closeBulkPaste();
+    AudioFX.close();
+  }
+
+  // ------------------------------------------------------------------ быстрая вставка одним текстом
+  // Формат: [название] / [перевод] / [суть] / [обложка] / [теги] / [описание] / [текст],
+  // дальше на новой строке — сам текст этого поля до следующей метки.
+
+  const bulkPasteSection = document.getElementById('bulkPasteSection');
+  const bulkPasteInput = document.getElementById('bulkPasteInput');
+
+  const BULK_MARKERS = {
+    'группа': 'groupName', 'тематика': 'groupName', 'группа / тематика': 'groupName', 'group': 'groupName',
+    'название': 'titleDe', 'заголовок': 'titleDe', 'title': 'titleDe',
+    'перевод': 'titleRu', 'перевод названия': 'titleRu', 'ру': 'titleRu',
+    'суть': 'summaryRu', 'краткое содержание': 'summaryRu',
+    'обложка': 'thumbnailPrompt', 'промт': 'thumbnailPrompt', 'промт для обложки': 'thumbnailPrompt', 'thumbnail': 'thumbnailPrompt',
+    'теги': 'tags', 'tags': 'tags',
+    'описание': 'description', 'описание под видео': 'description',
+    'текст': 'script', 'сценарий': 'script', 'текст ролика': 'script', 'script': 'script',
+  };
+
+  function parseBulkPaste(text) {
+    const result = {};
+    let currentField = null;
+    let buffer = [];
+    const markerRe = /^\s*\[([^\]]+)\]\s*$/;
+    const flush = () => { if (currentField) result[currentField] = buffer.join('\n').trim(); buffer = []; };
+    text.split('\n').forEach((line) => {
+      const m = line.match(markerRe);
+      const key = m && BULK_MARKERS[m[1].trim().toLowerCase()];
+      if (key) { flush(); currentField = key; return; }
+      if (currentField) buffer.push(line);
+    });
+    flush();
+    return result;
+  }
+
+  const bulkPasteToggleBtn = document.getElementById('bulkPasteToggle');
+  function openBulkPaste() {
+    bulkPasteSection.classList.add('is-open');
+    bulkPasteToggleBtn.classList.add('is-active');
+    setTimeout(() => bulkPasteInput.focus(), 150);
+  }
+  function closeBulkPaste() {
+    bulkPasteSection.classList.remove('is-open');
+    bulkPasteToggleBtn.classList.remove('is-active');
+  }
+
+  bulkPasteToggleBtn.addEventListener('click', () => {
+    AudioFX.click();
+    if (bulkPasteSection.classList.contains('is-open')) closeBulkPaste();
+    else openBulkPaste();
+  });
+  document.getElementById('bulkPasteCancel').addEventListener('click', () => { AudioFX.close(); closeBulkPaste(); });
+
+  const BULK_TEMPLATE = '[группа]\n\n\n[название]\n\n\n[перевод]\n\n\n[суть]\n\n\n[обложка]\n\n\n[теги]\n\n\n[описание]\n\n\n[текст]\n';
+  document.getElementById('bulkPasteCopyTemplate').addEventListener('click', (e) => {
+    copyText(BULK_TEMPLATE, e.currentTarget);
+  });
+
+  document.getElementById('bulkPasteApply').addEventListener('click', () => {
+    const parsed = parseBulkPaste(bulkPasteInput.value);
+    if (!Object.keys(parsed).length) { showToast('Не нашёл ни одной метки вида [название]', 'warn'); return; }
+
+    let createdGroupName = null;
+    if (parsed.groupName != null && parsed.groupName.trim()) {
+      const wanted = parsed.groupName.trim();
+      let g = groups.find((gr) => gr.name.toLowerCase() === wanted.toLowerCase());
+      if (!g) {
+        g = { id: groupUid(), name: wanted, color: GROUP_COLORS[groups.length % GROUP_COLORS.length] };
+        groups.push(g);
+        saveGroups();
+        createdGroupName = g.name;
+      }
+      populateGroupSelect(g.id);
+    }
+
+    if (parsed.titleDe != null) fields.titleDe.value = parsed.titleDe;
+    if (parsed.titleRu != null) fields.titleRu.value = parsed.titleRu;
+    if (parsed.summaryRu != null) fields.summaryRu.value = parsed.summaryRu;
+    if (parsed.thumbnailPrompt != null) fields.thumbPrompt.value = parsed.thumbnailPrompt;
+    if (parsed.tags != null) fields.tags.value = parsed.tags;
+    if (parsed.description != null) fields.description.value = parsed.description;
+    if (parsed.script != null) fields.script.value = parsed.script;
+    bulkPasteInput.value = '';
+    closeBulkPaste();
+    AudioFX.add();
+    if (createdGroupName) {
+      renderSegmentFilter();
+      showToast(`Группа «${createdGroupName}» создана и выбрана`);
+    } else {
+      showToast('Поля заполнены из вставленного текста');
+    }
+  });
+
+  document.getElementById('addBtn').addEventListener('click', () => openPanel(null));
+  document.getElementById('editBtn').addEventListener('click', () => {
+    if (!openVideoId) return;
+    const v = videos.find((x) => x.id === openVideoId);
+    closeModal();
+    openPanel(v);
+  });
+  document.getElementById('duplicateBtn').addEventListener('click', () => {
+    if (!openVideoId) return;
+    const v = videos.find((x) => x.id === openVideoId);
+    if (!v) return;
+    const copy = Object.assign({}, v, {
+      id: uid(),
+      done: false,
+      createdAt: Date.now(),
+      titleRu: v.titleRu ? v.titleRu + ' (копия)' : v.titleRu,
+    });
+    videos.push(copy);
+    saveVideos();
+    closeModal();
+    render();
+    AudioFX.add();
+    showToast('Ролик продублирован');
+    const newCardEl = document.querySelector(`.card[data-id="${copy.id}"]`);
+    if (newCardEl) {
+      newCardEl.classList.add('card-enter');
+      newCardEl.addEventListener('animationend', () => newCardEl.classList.remove('card-enter'), { once: true });
+      newCardEl.scrollIntoView({ block: 'nearest' });
+    }
+    openModal(copy.id);
+  });
+  document.getElementById('panelClose').addEventListener('click', closePanel);
+  document.getElementById('panelCancel').addEventListener('click', closePanel);
+  panelBackdrop.addEventListener('click', (e) => { if (e.target === panelBackdrop) closePanel(); });
+
+  videoForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!groups.length) {
+      showToast('Сначала создайте хотя бы одну группу', 'warn');
+      pendingGroupTargetForForm = true;
+      openGroupsModal();
+      return;
+    }
+    const tags = fields.tags.value.split(',').map((t) => t.trim()).filter(Boolean);
+    const payload = {
+      groupId: fieldGroupInput.value || (groups[0] && groups[0].id),
+      titleDe: fields.titleDe.value.trim(),
+      titleRu: fields.titleRu.value.trim(),
+      summaryRu: fields.summaryRu.value.trim(),
+      thumbnailPrompt: fields.thumbPrompt.value.trim(),
+      tags,
+      description: fields.description.value.trim(),
+      script: fields.script.value.trim(),
+    };
+
+    let newId = null;
+    if (fields.id.value) {
+      const v = videos.find((x) => x.id === fields.id.value);
+      if (v) Object.assign(v, payload);
+      showToast('Изменения сохранены');
+    } else {
+      newId = uid();
+      videos.push(Object.assign({ id: newId, done: false, createdAt: Date.now() }, payload));
+      AudioFX.add();
+      showToast('Ролик добавлен');
+    }
+    saveVideos();
+    closePanel();
+    render();
+
+    if (newId) {
+      const newCardEl = document.querySelector(`.card[data-id="${newId}"]`);
+      if (newCardEl) {
+        newCardEl.classList.add('card-enter');
+        newCardEl.addEventListener('animationend', () => newCardEl.classList.remove('card-enter'), { once: true });
+      }
+    }
+  });
+
+  // ------------------------------------------------------------------ модалка "Группы"
+
+  const groupsModalBackdrop = document.getElementById('groupsModalBackdrop');
+  const groupsList = document.getElementById('groupsList');
+  const newGroupName = document.getElementById('newGroupName');
+  const colorSwatches = document.getElementById('colorSwatches');
+  const addGroupBtn = document.getElementById('addGroupBtn');
+
+  function renderColorSwatches() {
+    colorSwatches.innerHTML = GROUP_COLORS.map((c) => `<span class="color-swatch${c === newGroupSelectedColor ? ' is-selected' : ''}" data-color="${c}" style="background:var(--${c})"></span>`).join('');
+  }
+
+  colorSwatches.addEventListener('click', (e) => {
+    const sw = e.target.closest('.color-swatch');
+    if (!sw) return;
+    newGroupSelectedColor = sw.dataset.color;
+    AudioFX.click();
+    renderColorSwatches();
+  });
+
+  function renderGroupsList() {
+    groupsList.innerHTML = groups.map((g) => {
+      const count = videos.filter((v) => v.groupId === g.id).length;
+      return `<div class="group-row" data-id="${g.id}">
+        <span class="grp-dot" style="background:var(--${g.color})"></span>
+        <input type="text" class="group-name-input" value="${escapeHtml(g.name)}" data-id="${g.id}">
+        <span class="group-count">${count} шт.</span>
+        <button class="icon-btn" data-action="delete-group" data-id="${g.id}" title="Удалить группу">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 7H19M9 7V5C9 4.4 9.4 4 10 4H14C14.6 4 15 4.4 15 5V7M7 7L8 20C8 20.6 8.4 21 9 21H15C15.6 21 16 20.6 16 20L17 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>`;
+    }).join('');
+  }
+
+  groupsList.addEventListener('change', (e) => {
+    const input = e.target.closest('.group-name-input');
+    if (!input) return;
+    const g = groupById(input.dataset.id);
+    if (!g) return;
+    const newName = input.value.trim();
+    if (!newName) { input.value = g.name; return; }
+    g.name = newName;
+    saveGroups();
+    render();
+    showToast('Группа переименована');
+  });
+
+  groupsList.addEventListener('click', async (e) => {
+    const delBtn = e.target.closest('[data-action="delete-group"]');
+    if (!delBtn) return;
+    if (groups.length <= 1) { showToast('Должна остаться хотя бы одна группа', 'warn'); return; }
+    const g = groupById(delBtn.dataset.id);
+    if (!g) return;
+    const count = videos.filter((v) => v.groupId === g.id).length;
+    const msg = count > 0
+      ? `${count} ролик(ов) будут перенесены в другую группу.`
+      : `Группа «${g.name}» будет удалена без возможности восстановления.`;
+    const ok = await showConfirm({ title: `Удалить группу «${g.name}»?`, message: msg });
+    if (!ok) return;
+    groups = groups.filter((x) => x.id !== g.id);
+    const fallbackId = groups[0].id;
+    videos.forEach((v) => { if (v.groupId === g.id) v.groupId = fallbackId; });
+    if (currentGroupId === g.id) currentGroupId = 'all';
+    saveGroups();
+    saveVideos();
+    renderGroupsList();
+    render();
+    AudioFX.delete();
+    showToast('Группа удалена');
+  });
+
+  addGroupBtn.addEventListener('click', () => {
+    const name = newGroupName.value.trim();
+    if (!name) { showToast('Введите название группы', 'warn'); return; }
+    if (groups.some((g) => g.name.toLowerCase() === name.toLowerCase())) { showToast('Такая группа уже есть', 'warn'); return; }
+    const g = { id: groupUid(), name, color: newGroupSelectedColor };
+    groups.push(g);
+    saveGroups();
+    newGroupName.value = '';
+    newGroupSelectedColor = GROUP_COLORS[(groups.length) % GROUP_COLORS.length];
+    renderColorSwatches();
+    renderGroupsList();
+    render();
+    AudioFX.add();
+    showToast(`Группа «${g.name}» создана`);
+
+    if (pendingGroupTargetForForm) {
+      populateGroupSelect(g.id);
+      pendingGroupTargetForForm = false;
+      closeGroupsModal();
+    }
+  });
+
+  function openGroupsModal() {
+    renderColorSwatches();
+    renderGroupsList();
+    groupsModalBackdrop.classList.add('is-open');
+    AudioFX.open();
+  }
+  function closeGroupsModal() {
+    if (!groupsModalBackdrop.classList.contains('is-open')) return;
+    groupsModalBackdrop.classList.remove('is-open');
+    pendingGroupTargetForForm = false;
+    AudioFX.close();
+  }
+
+  document.getElementById('manageGroupsBtn').addEventListener('click', () => openGroupsModal());
+  document.getElementById('groupsModalClose').addEventListener('click', closeGroupsModal);
+  groupsModalBackdrop.addEventListener('click', (e) => { if (e.target === groupsModalBackdrop) closeGroupsModal(); });
+
+  // ------------------------------------------------------------------ аккаунт
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    const ok = await showConfirm({ title: 'Выйти из аккаунта?', message: 'Данные роликов останутся в этом браузере — при следующем входе они будут на месте.', confirmLabel: 'Выйти' });
+    if (!ok) return;
+    Auth.logout();
+    window.location.href = 'login.html';
+  });
+
+  const settingsBackdrop = document.getElementById('settingsBackdrop');
+  const settingsUsernameInput = document.getElementById('settingsUsername');
+  const usernameErrorEl = document.getElementById('usernameError');
+  const passwordErrorEl = document.getElementById('passwordError');
+
+  document.querySelectorAll('.auth-eye-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.dataset.for);
+      const showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      btn.classList.toggle('is-active', !showing);
+      AudioFX.click();
+    });
+  });
+
+  function openSettings() {
+    const user = Auth.currentUser();
+    settingsUsernameInput.value = user ? user.username : '';
+    usernameErrorEl.textContent = '';
+    passwordErrorEl.textContent = '';
+    document.getElementById('settingsCurrentPassword').value = '';
+    document.getElementById('settingsNewPassword').value = '';
+    settingsBackdrop.classList.add('is-open');
+    AudioFX.open();
+  }
+  function closeSettings() {
+    settingsBackdrop.classList.remove('is-open');
+    AudioFX.close();
+  }
+  document.getElementById('settingsBtn').addEventListener('click', openSettings);
+  document.getElementById('settingsClose').addEventListener('click', closeSettings);
+  settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
+
+  document.getElementById('formUsername').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const result = Auth.changeUsername(settingsUsernameInput.value);
+    if (!result.ok) { usernameErrorEl.textContent = result.message; AudioFX.undo(); return; }
+    usernameErrorEl.textContent = '';
+    AudioFX.success();
+    showToast('Ник обновлён');
+  });
+
+  document.getElementById('formPassword').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const current = document.getElementById('settingsCurrentPassword').value;
+    const next = document.getElementById('settingsNewPassword').value;
+    const result = Auth.changePassword(current, next);
+    if (!result.ok) { passwordErrorEl.textContent = result.message; AudioFX.undo(); return; }
+    passwordErrorEl.textContent = '';
+    document.getElementById('settingsCurrentPassword').value = '';
+    document.getElementById('settingsNewPassword').value = '';
+    AudioFX.success();
+    showToast('Пароль изменён');
+  });
+
+  // ------------------------------------------------------------------ панель проектов (слева)
+
+  const workspacePeek = document.getElementById('workspacePeek');
+  const workspacePanel = document.getElementById('workspacePanel');
+  const workspaceMobileFab = document.getElementById('workspaceMobileFab');
+  const workspaceGridEl = document.getElementById('workspaceGrid');
+
+  const workspacePin = document.getElementById('workspacePin');
+  let workspacePinned = false;
+  let workspaceCloseTimer = null;
+
+  // На ПК — наведением: подвёл курсор к полоске/панели — открылась, увёл — закрылась.
+  // Булавка держит её открытой без наведения. На телефоне наведения нет —
+  // там отдельная круглая кнопка (workspaceMobileFab), чисто по тапу.
+  function openWorkspacePanel() {
+    clearTimeout(workspaceCloseTimer);
+    workspacePanel.classList.add('is-open');
+    workspacePeek.classList.add('is-hidden');
+    workspaceMobileFab.classList.add('is-open');
+  }
+  function closeWorkspacePanel() {
+    workspacePanel.classList.remove('is-open');
+    workspacePeek.classList.remove('is-hidden');
+    workspaceMobileFab.classList.remove('is-open');
+  }
+  function scheduleCloseWorkspacePanel(force) {
+    clearTimeout(workspaceCloseTimer);
+    if (workspacePinned && !force) return;
+    workspaceCloseTimer = setTimeout(closeWorkspacePanel, force ? 0 : 90);
+  }
+  function toggleWorkspacePanel() {
+    if (workspacePanel.classList.contains('is-open')) closeWorkspacePanel();
+    else openWorkspacePanel();
+  }
+
+  workspacePeek.addEventListener('mouseenter', () => { if (!isMobileLayout()) openWorkspacePanel(); });
+  workspacePanel.addEventListener('mouseenter', () => { if (!isMobileLayout()) openWorkspacePanel(); });
+  workspacePeek.addEventListener('mouseleave', () => { if (!isMobileLayout()) scheduleCloseWorkspacePanel(false); });
+  workspacePanel.addEventListener('mouseleave', () => { if (!isMobileLayout()) scheduleCloseWorkspacePanel(false); });
+
+  workspacePin.addEventListener('click', () => {
+    workspacePinned = !workspacePinned;
+    workspacePin.classList.toggle('is-active', workspacePinned);
+    workspacePanel.classList.toggle('is-pinned', workspacePinned);
+    AudioFX.click();
+    if (workspacePinned) openWorkspacePanel();
+  });
+
+  // мобильная кнопка — чисто по тапу, без наведения
+  workspaceMobileFab.addEventListener('click', () => { AudioFX.click(); toggleWorkspacePanel(); });
+
+  document.addEventListener('click', (e) => {
+    if (!workspacePanel.classList.contains('is-open') || workspacePinned) return;
+    if (e.target.closest('#workspacePanel') || e.target.closest('#workspacePeek') || e.target.closest('#workspaceMobileFab') || e.target.closest('#topbarWorkspace')) return;
+    closeWorkspacePanel();
+  });
+
+  const workspaceResizeHandle = document.getElementById('workspaceResizeHandle');
+  let resizeStartX = 0, resizeStartWidth = 0;
+  workspaceResizeHandle.addEventListener('pointerdown', (e) => {
+    if (!workspacePinned) return;
+    e.preventDefault();
+    resizeStartX = e.clientX;
+    resizeStartWidth = workspacePanel.getBoundingClientRect().width;
+    workspacePanel.classList.add('is-resizing');
+    workspaceResizeHandle.setPointerCapture(e.pointerId);
+  });
+  workspaceResizeHandle.addEventListener('pointermove', (e) => {
+    if (!workspacePanel.classList.contains('is-resizing')) return;
+    const next = Math.min(720, Math.max(300, resizeStartWidth + (e.clientX - resizeStartX)));
+    workspacePanel.style.width = next + 'px';
+  });
+  function stopWorkspaceResize() { workspacePanel.classList.remove('is-resizing'); }
+  workspaceResizeHandle.addEventListener('pointerup', stopWorkspaceResize);
+  workspaceResizeHandle.addEventListener('pointercancel', stopWorkspaceResize);
+
+  function workspaceFolderIconSvg() {
+    return `<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M3.5 6.5C3.5 5.7 4.2 5 5 5H9.5L11.5 7.5H19C19.8 7.5 20.5 8.2 20.5 9V17.5C20.5 18.3 19.8 19 19 19H5C4.2 19 3.5 18.3 3.5 17.5V6.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>`;
+  }
+
+  function workspaceVideoCount(w) {
+    try {
+      const raw = localStorage.getItem(videosKey(w.id));
+      if (raw) return JSON.parse(raw).length;
+    } catch (e) {}
+    return w.id === activeWorkspaceId ? videos.length : 0;
+  }
+
+  const workspacePeekDot = document.getElementById('workspacePeekDot');
+  const workspacePeekLabel = document.getElementById('workspacePeekLabel');
+  const topbarWorkspaceDot = document.getElementById('topbarWorkspaceDot');
+  const topbarWorkspaceName = document.getElementById('topbarWorkspaceName');
+  function updateWorkspacePeekIndicator() {
+    const w = workspaceById(activeWorkspaceId);
+    if (!w) return;
+    workspacePeek.style.setProperty('--grp-c', `var(--${w.color})`);
+    workspacePeekDot.style.background = `var(--${w.color})`;
+    workspacePeekLabel.textContent = w.name;
+    document.getElementById('topbarWorkspace').style.setProperty('--grp-c', `var(--${w.color})`);
+    topbarWorkspaceDot.style.background = `var(--${w.color})`;
+    topbarWorkspaceName.textContent = w.name;
+    // цвет текущего проекта доступен глобально — используется, например,
+    // для разделителя "выполненные ролики опускаются сюда"
+    document.documentElement.style.setProperty('--ws-c', `var(--${w.color})`);
+  }
+  document.getElementById('topbarWorkspace').addEventListener('click', () => {
+    AudioFX.click();
+    if (workspacePanel.classList.contains('is-open')) {
+      closeWorkspacePanel();
+    } else {
+      openWorkspacePanel();
+    }
+  });
+
+  function renderWorkspaceList() {
+    const tiles = workspaces.map((w) => `
+      <div class="workspace-tile${w.id === activeWorkspaceId ? ' is-active' : ''}" data-id="${w.id}" style="--grp-c:var(--${w.color})">
+        <div class="workspace-tile-top">
+          <span class="workspace-icon">${workspaceFolderIconSvg()}</span>
+          <button class="workspace-edit" data-action="edit-workspace" data-id="${w.id}" title="Настройки проекта">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 20L4.6 16.7L16.4 4.9C17 4.3 18 4.3 18.6 4.9L19.1 5.4C19.7 6 19.7 7 19.1 7.6L7.3 19.4L4 20Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div>
+          <div class="workspace-name">${escapeHtml(w.name)}</div>
+          <div class="workspace-count">${workspaceVideoCount(w)} ролик(ов)</div>
+        </div>
+      </div>`).join('');
+
+    const addTile = `
+      <div class="workspace-tile workspace-tile--add" id="addWorkspaceTile">
+        <span class="plus-icon">+</span>
+        <span>Новый проект</span>
+      </div>`;
+
+    workspaceGridEl.innerHTML = tiles + addTile;
+  }
+
+  workspaceGridEl.addEventListener('click', (e) => {
+    if (e.target.closest('#addWorkspaceTile')) { openFolderModal('create', null); return; }
+    const editBtn = e.target.closest('[data-action="edit-workspace"]');
+    if (editBtn) { e.stopPropagation(); openFolderModal('edit', workspaceById(editBtn.dataset.id)); return; }
+    const tile = e.target.closest('.workspace-tile');
+    if (tile && tile.dataset.id) switchWorkspace(tile.dataset.id);
+  });
+
+  // --- окно создания / редактирования проекта ---
+  const folderModalBackdrop = document.getElementById('folderModalBackdrop');
+  const folderModalTitle = document.getElementById('folderModalTitle');
+  const folderNameInput = document.getElementById('folderNameInput');
+  const folderColorSwatches = document.getElementById('folderColorSwatches');
+  const folderSaveBtn = document.getElementById('folderSaveBtn');
+  const folderDeleteBtn = document.getElementById('folderDeleteBtn');
+  let folderModalMode = 'create';
+  let folderModalTargetId = null;
+  let folderModalColor = GROUP_COLORS[0];
+
+  function renderFolderColorSwatches() {
+    folderColorSwatches.innerHTML = GROUP_COLORS.map((c) => `<span class="color-swatch${c === folderModalColor ? ' is-selected' : ''}" data-color="${c}" style="background:var(--${c})"></span>`).join('');
+  }
+  folderColorSwatches.addEventListener('click', (e) => {
+    const sw = e.target.closest('.color-swatch');
+    if (!sw) return;
+    folderModalColor = sw.dataset.color;
+    AudioFX.click();
+    renderFolderColorSwatches();
+  });
+
+  function openFolderModal(mode, workspace) {
+    folderModalMode = mode;
+    folderModalTargetId = workspace ? workspace.id : null;
+    folderModalTitle.textContent = mode === 'create' ? 'Новый проект' : 'Настройки проекта';
+    folderSaveBtn.textContent = mode === 'create' ? 'Создать проект' : 'Сохранить';
+    folderNameInput.value = workspace ? workspace.name : '';
+    folderModalColor = workspace ? workspace.color : GROUP_COLORS[workspaces.length % GROUP_COLORS.length];
+    folderDeleteBtn.hidden = mode !== 'edit';
+    renderFolderColorSwatches();
+    folderModalBackdrop.classList.add('is-open');
+    AudioFX.open();
+    setTimeout(() => folderNameInput.focus(), 50);
+  }
+  function closeFolderModal() {
+    folderModalBackdrop.classList.remove('is-open');
+    AudioFX.close();
+  }
+  document.getElementById('folderModalClose').addEventListener('click', closeFolderModal);
+  folderModalBackdrop.addEventListener('click', (e) => { if (e.target === folderModalBackdrop) closeFolderModal(); });
+
+  folderSaveBtn.addEventListener('click', () => {
+    const name = folderNameInput.value.trim();
+    if (!name) { showToast('Введите название проекта', 'warn'); return; }
+    if (folderModalMode === 'create') {
+      const w = { id: workspaceUid(), name, color: folderModalColor, createdAt: Date.now() };
+      workspaces.push(w);
+      saveWorkspaces();
+      renderWorkspaceList();
+      AudioFX.add();
+      closeFolderModal();
+      switchWorkspace(w.id);
+    } else {
+      const w = workspaceById(folderModalTargetId);
+      if (!w) return;
+      w.name = name;
+      w.color = folderModalColor;
+      saveWorkspaces();
+      renderWorkspaceList();
+      if (w.id === activeWorkspaceId) updateWorkspacePeekIndicator();
+      showToast('Проект обновлён');
+      closeFolderModal();
+    }
+  });
+
+  folderDeleteBtn.addEventListener('click', async () => {
+    if (workspaces.length <= 1) { showToast('Должен остаться хотя бы один проект', 'warn'); return; }
+    const w = workspaceById(folderModalTargetId);
+    if (!w) return;
+    const ok = await showConfirm({
+      title: `Удалить проект «${w.name}»?`,
+      message: 'Вместе с проектом удалятся все его ролики и группы. Это необратимо.',
+    });
+    if (!ok) return;
+    try { localStorage.removeItem(videosKey(w.id)); localStorage.removeItem(groupsKey(w.id)); } catch (err) {}
+    workspaces = workspaces.filter((x) => x.id !== w.id);
+    saveWorkspaces();
+    if (activeWorkspaceId === w.id) {
+      setActiveWorkspace(workspaces[0].id);
+      loadGroups(); loadVideos(); isFirstRender = true; render();
+    }
+    renderWorkspaceList();
+    AudioFX.delete();
+    showToast('Проект удалён');
+    closeFolderModal();
+  });
+
+  // ------------------------------------------------------------------ поиск
+
+  const searchInputEl = document.getElementById('searchInput');
+  const searchClearBtn = document.getElementById('searchClearBtn');
+
+  searchInputEl.addEventListener('input', (e) => {
+    currentSearch = e.target.value.trim().toLowerCase();
+    searchClearBtn.hidden = !e.target.value;
+    render();
+  });
+  searchClearBtn.addEventListener('click', () => {
+    searchInputEl.value = '';
+    currentSearch = '';
+    searchClearBtn.hidden = true;
+    searchInputEl.focus();
+    AudioFX.click();
+    render();
+  });
+
+  // ------------------------------------------------------------------ звук: кнопка
+
+  const soundToggle = document.getElementById('soundToggle');
+  const iconSoundOn = document.getElementById('iconSoundOn');
+  const iconSoundOff = document.getElementById('iconSoundOff');
+
+  function applySoundIcon() {
+    const on = AudioFX.isEnabled();
+    iconSoundOn.hidden = !on;
+    iconSoundOff.hidden = on;
+    soundToggle.classList.toggle('is-off', !on);
+  }
+  soundToggle.addEventListener('click', () => {
+    AudioFX.toggle(!AudioFX.isEnabled());
+    applySoundIcon();
+  });
+  applySoundIcon();
+
+  // ------------------------------------------------------------------ помощь
+
+  const helpBtn = document.getElementById('helpBtn');
+  const helpPopover = document.getElementById('helpPopover');
+  function toggleHelp(force) {
+    const willOpen = typeof force === 'boolean' ? force : !helpPopover.classList.contains('is-open');
+    helpPopover.classList.toggle('is-open', willOpen);
+  }
+  helpBtn.addEventListener('click', (e) => { e.stopPropagation(); AudioFX.click(); toggleHelp(); });
+  document.addEventListener('click', (e) => {
+    if (!helpPopover.contains(e.target) && e.target !== helpBtn) toggleHelp(false);
+  });
+
+  // ------------------------------------------------------------------ pan & zoom поля (плавно, с умеренной инерцией)
+  //
+  // Важно: .canvas-pan отвечает только за translate (реальные экранные пиксели),
+  // .canvas-inner — только за zoom (не transform:scale!), чтобы текст оставался
+  // чётким на любом масштабе — transform:scale просто растягивает готовый растр,
+  // а zoom заставляет браузер по-настоящему пересчитать раскладку.
+
+  const viewport = document.getElementById('viewport');
+  const canvasPan = document.getElementById('canvasPan');
+  const canvasInner = document.getElementById('canvasInner');
+
+  // На телефоне (и вообще на узком экране) поле не перетаскивается и не
+  // масштабируется — просто обычная прокрутка, как в CSS-медиа-запросе выше.
+  function isMobileLayout() { return window.matchMedia('(max-width: 860px)').matches; }
+
+  let panX = 0, panY = 0, scale = 1;
+  let pointerDownPos = null, dragThresholdExceeded = false, capturedPointerId = null;
+  let startPanX = 0, startPanY = 0;
+  const DRAG_THRESHOLD = 6;
+  let velocityX = 0, velocityY = 0, lastMoveTime = 0, lastMoveX = 0, lastMoveY = 0;
+  let momentumRaf = null;
+
+  // Масштаб всегда идёт через настоящий CSS zoom (не transform:scale) — это
+  // единственный способ получить честно чёткий текст на любом приближении:
+  // transform:scale просто растягивает готовую картинку слоя, а zoom
+  // пересчитывает раскладку и рендерит текст заново под новый размер.
+  // Чтобы не дёргать zoom на каждый микро-шаг колеса (это reflow, недёшево),
+  // события колеса копятся и применяются одним разом за кадр — не чаще,
+  // чем браузер всё равно успевает отрисовать.
+  function applyPan() { canvasPan.style.transform = `translate(${panX}px, ${panY}px)`; }
+
+  function setZoomAt(anchorX, anchorY, newScale) {
+    const clamped = Math.min(1.6, Math.max(0.45, newScale));
+    const worldX = (anchorX - panX) / scale;
+    const worldY = (anchorY - panY) / scale;
+    scale = clamped;
+    panX = anchorX - worldX * scale;
+    panY = anchorY - worldY * scale;
+    canvasInner.style.zoom = String(scale);
+    applyPan();
+  }
+
+  function centerCanvas() {
+    stopMomentum();
+    if (isMobileLayout()) return; // на телефоне поле не масштабируется — обычная прокрутка
+    const vw = viewport.clientWidth;
+    panX = (vw - 3200) / 2;
+    panY = 40;
+    scale = Math.min(1, vw / 1700);
+    canvasInner.style.zoom = String(scale);
+    applyPan();
+  }
+
+  function stopMomentum() {
+    if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = null; }
+  }
+
+  function runMomentum() {
+    // плавное затухание: резкий рывок ощутимо докатывается по инерции,
+    // но не "простреливает" далеко и не отскакивает
+    const friction = 0.9;
+    velocityX *= friction;
+    velocityY *= friction;
+    panX += velocityX;
+    panY += velocityY;
+    applyPan();
+    if (Math.abs(velocityX) > 0.12 || Math.abs(velocityY) > 0.12) {
+      momentumRaf = requestAnimationFrame(runMomentum);
+    } else {
+      momentumRaf = null;
+    }
+  }
+
+  viewport.addEventListener('pointerdown', (e) => {
+    if (isMobileLayout()) return; // на телефоне — обычная прокрутка, панорамирование выключено
+    const isMiddleButton = e.button === 1;
+    const onRealControl = e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('.custom-select');
+    if (onRealControl) return; // настоящие кнопки/поля/дропдауны не трогаем никакой кнопкой мыши
+    // ЛКМ панорамирует только с пустого места (по карточке — открывает её).
+    // Средняя кнопка мыши (зажать колёсико) панорамирует всегда, даже прямо над карточкой.
+    if (!isMiddleButton && e.target.closest('.card')) return;
+
+    stopMomentum();
+    pointerDownPos = { x: e.clientX, y: e.clientY };
+    dragThresholdExceeded = isMiddleButton; // средней кнопкой тащим сразу, без порога в 6px
+    capturedPointerId = e.pointerId;
+    startPanX = panX; startPanY = panY;
+    lastMoveTime = performance.now();
+    lastMoveX = e.clientX; lastMoveY = e.clientY;
+    velocityX = 0; velocityY = 0;
+
+    if (isMiddleButton) {
+      e.preventDefault(); // отключаем стандартный авто-скролл средней кнопкой
+      viewport.classList.add('is-panning');
+      try { viewport.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    // для ЛКМ pointer capture ставим только когда реально начнётся перетаскивание (см. pointermove) —
+    // если сделать это сразу на pointerdown, клик по карточке перестаёт открываться,
+    // потому что все последующие события (включая click) ретаргетятся на viewport.
+  });
+
+  viewport.addEventListener('pointermove', (e) => {
+    if (!pointerDownPos) return;
+    const dx = e.clientX - pointerDownPos.x;
+    const dy = e.clientY - pointerDownPos.y;
+    if (!dragThresholdExceeded) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      dragThresholdExceeded = true;
+      viewport.classList.add('is-panning');
+      try { viewport.setPointerCapture(capturedPointerId); } catch (err) {}
+    }
+    e.preventDefault();
+    panX = startPanX + dx;
+    panY = startPanY + dy;
+    applyPan();
+
+    const now = performance.now();
+    const dt = Math.max(1, now - lastMoveTime);
+    velocityX = (e.clientX - lastMoveX) / dt * 11;
+    velocityY = (e.clientY - lastMoveY) / dt * 11;
+    // ограничиваем максимальную скорость, чтобы очень резкий рывок не "простреливал" поле
+    velocityX = Math.max(-38, Math.min(38, velocityX));
+    velocityY = Math.max(-38, Math.min(38, velocityY));
+    lastMoveTime = now; lastMoveX = e.clientX; lastMoveY = e.clientY;
+  });
+
+  function endPan() {
+    if (dragThresholdExceeded && (Math.abs(velocityX) > 0.35 || Math.abs(velocityY) > 0.35)) {
+      runMomentum();
+    }
+    pointerDownPos = null;
+    viewport.classList.remove('is-panning');
+    setTimeout(() => { dragThresholdExceeded = false; }, 0);
+  }
+  viewport.addEventListener('pointerup', endPan);
+  viewport.addEventListener('pointercancel', endPan);
+
+  // события колеса мыши копятся и применяются одним zoom-реflow за кадр —
+  // не чаще, чем браузер всё равно успевает нарисовать, вместо reflow на каждое
+  // отдельное срабатывание колеса (их может быть десятки в секунду).
+  let pendingWheelDelta = 0, pendingAnchor = null, wheelRafPending = false;
+
+  function flushWheelZoom() {
+    wheelRafPending = false;
+    if (!pendingAnchor) return;
+    const newScale = scale * (1 - pendingWheelDelta * 0.0012);
+    setZoomAt(pendingAnchor.x, pendingAnchor.y, newScale);
+    pendingWheelDelta = 0;
+    pendingAnchor = null;
+  }
+
+  viewport.addEventListener('wheel', (e) => {
+    if (isMobileLayout()) return; // обычная прокрутка вместо зума
+    e.preventDefault();
+    // пока зажата любая кнопка мыши для перетаскивания (в том числе средняя) —
+    // колесо игнорируем: одновременный зум и панорамирование дёргали картинку,
+    // потому что оба меняли panX/panY независимо друг от друга
+    if (pointerDownPos) return;
+    const rect = viewport.getBoundingClientRect();
+    pendingAnchor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    pendingWheelDelta += e.deltaY;
+    if (!wheelRafPending) { wheelRafPending = true; requestAnimationFrame(flushWheelZoom); }
+  }, { passive: false });
+
+  function stepZoom(delta) {
+    const rect = viewport.getBoundingClientRect();
+    setZoomAt(rect.width / 2, rect.height / 2, scale + delta);
+  }
+
+  document.getElementById('zoomIn').addEventListener('click', () => { AudioFX.click(); stepZoom(0.15); });
+  document.getElementById('zoomOut').addEventListener('click', () => { AudioFX.click(); stepZoom(-0.15); });
+  document.getElementById('zoomReset').addEventListener('click', () => { AudioFX.click(); centerCanvas(); });
+
+  window.addEventListener('resize', centerCanvas);
+
+  // высота шапки измеряется по факту, а не подбирается на глаз — так левая
+  // панель проектов и полоска всегда стартуют ровно под ней, при любом
+  // размере логотипа/контента и любой ширине окна
+  const topbarEl = document.querySelector('.topbar');
+  function syncTopbarHeight() {
+    if (!topbarEl) return;
+    document.documentElement.style.setProperty('--topbar-total-height', topbarEl.getBoundingClientRect().height + 'px');
+  }
+  syncTopbarHeight();
+  window.addEventListener('resize', syncTopbarHeight);
+  if (window.ResizeObserver) new ResizeObserver(syncTopbarHeight).observe(topbarEl);
+
+  // ------------------------------------------------------------------ toasts
+
+  function showToast(message) {
+    const stack = document.getElementById('toastStack');
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = `<span class="dot-accent"></span>${escapeHtml(message)}`;
+    stack.appendChild(el);
+    setTimeout(() => {
+      el.classList.add('is-leaving');
+      el.addEventListener('animationend', () => el.remove());
+    }, 2600);
+  }
+
+  // ------------------------------------------------------------------ init
+
+  loadWorkspaces();
+  renderWorkspaceList();
+  updateWorkspacePeekIndicator();
+  loadGroups();
+  loadVideos();
+  render();
+  centerCanvas();
+})();

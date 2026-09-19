@@ -7,7 +7,7 @@
 window.Auth = (function () {
   'use strict';
 
-  const EMAIL_DOMAIN = '@ezyt.local';
+  const EMAIL_DOMAIN = '@ezyt-users.app';
   let cachedUser = null; // { id, username }
 
   function emailFor(username) { return username.trim().toLowerCase() + EMAIL_DOMAIN; }

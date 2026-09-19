@@ -9,6 +9,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseConfig.js"></script>
 <style>
   body { overflow: auto; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 
@@ -82,6 +84,7 @@
 
   .auth-panel { animation: authIn .4s var(--ease-snap) both; }
   @keyframes authIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  html.auth-pending body { visibility: hidden; }
 </style>
 </head>
 <body>
@@ -144,7 +147,8 @@
 
   <script src="auth.js"></script>
   <script>
-    (function () {
+    (async function () {
+      document.documentElement.classList.add('auth-pending');
       const tabLogin = document.getElementById('tabLogin');
       const tabRegister = document.getElementById('tabRegister');
       const panelLogin = document.getElementById('panelLogin');
@@ -181,24 +185,36 @@
       document.getElementById('goToLogin').addEventListener('click', (e) => { e.preventDefault(); show('login'); });
 
       // если уже вошли — сразу в приложение, форма логина не нужна
+      await Auth.ready;
       if (Auth.isLoggedIn()) { window.location.replace('index.html'); return; }
+      document.documentElement.classList.remove('auth-pending');
 
-      document.getElementById('formLogin').addEventListener('submit', (e) => {
+      function setBusy(form, busy) {
+        form.querySelector('button[type="submit"]').disabled = busy;
+      }
+
+      document.getElementById('formLogin').addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('loginUsername').value.trim();
         const password = document.getElementById('loginPassword').value;
         const err = document.getElementById('loginError');
-        const result = Auth.login(username, password);
+        err.textContent = '';
+        setBusy(e.target, true);
+        const result = await Auth.login(username, password);
+        setBusy(e.target, false);
         if (!result.ok) { err.textContent = result.message; return; }
         window.location.replace('index.html');
       });
 
-      document.getElementById('formRegister').addEventListener('submit', (e) => {
+      document.getElementById('formRegister').addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('registerUsername').value.trim();
         const password = document.getElementById('registerPassword').value;
         const err = document.getElementById('registerError');
-        const result = Auth.register(username, password);
+        err.textContent = '';
+        setBusy(e.target, true);
+        const result = await Auth.register(username, password);
+        setBusy(e.target, false);
         if (!result.ok) { err.textContent = result.message; return; }
         window.location.replace('index.html');
       });

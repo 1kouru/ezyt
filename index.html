@@ -9,8 +9,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<style>html.auth-pending body { visibility: hidden; }</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseConfig.js"></script>
 <script src="auth.js"></script>
-<script>Auth.requireLogin();</script>
+<script>
+  document.documentElement.classList.add('auth-pending');
+  Auth.requireLogin().then(() => { document.documentElement.classList.remove('auth-pending'); });
+</script>
 </head>
 <body>
 

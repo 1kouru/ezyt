@@ -1,41 +1,16 @@
 /* ==========================================================================
-   ezyt — простая локальная авторизация (без бэкенда, без почты).
-   Только ник + пароль. Пароли хранятся как есть в localStorage браузера —
-   это НЕ настоящая защита, только заглушка интерфейса до появления
-   реальной базы данных.
+   ezyt — авторизация через Supabase (реальная база данных).
+   Снаружи по-прежнему только ник + пароль, без почты — под капотом ник
+   превращается в служебный email вида "ник@ezyt.local" для Supabase Auth.
    ========================================================================== */
 
 window.Auth = (function () {
   'use strict';
 
-  const USERS_KEY = 'ezytUsers';
-  const SESSION_KEY = 'ezytSession';
+  const EMAIL_DOMAIN = '@ezyt.local';
+  let cachedUser = null; // { id, username }
 
-  function loadUsers() {
-    try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; }
-    catch (e) { return []; }
-  }
-  function saveUsers(users) {
-    try { localStorage.setItem(USERS_KEY, JSON.stringify(users)); } catch (e) {}
-  }
-  function findUser(users, username) {
-    return users.find((u) => u.username.toLowerCase() === String(username || '').toLowerCase());
-  }
-
-  function isLoggedIn() {
-    try { return !!JSON.parse(localStorage.getItem(SESSION_KEY)); }
-    catch (e) { return false; }
-  }
-  function currentUser() {
-    try { return JSON.parse(localStorage.getItem(SESSION_KEY)); }
-    catch (e) { return null; }
-  }
-  function setSession(username) {
-    try { localStorage.setItem(SESSION_KEY, JSON.stringify({ username })); } catch (e) {}
-  }
-  function logout() {
-    try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
-  }
+  function emailFor(username) { return username.trim().toLowerCase() + EMAIL_DOMAIN; }
 
   function validateUsername(username) {
     if (!username || username.trim().length < 2) return 'Ник — минимум 2 символа';
@@ -46,77 +21,111 @@ window.Auth = (function () {
     return null;
   }
 
-  function register(username, password) {
+  async function fetchUsername(id) {
+    const { data, error } = await sb.from('profiles').select('username').eq('id', id).single();
+    if (error || !data) return null;
+    return data.username;
+  }
+
+  // остальной код (index.html/app.js) может дождаться Auth.ready перед
+  // тем, как читать Auth.currentUser() — восстановление сессии асинхронно
+  let readyResolve;
+  const ready = new Promise((resolve) => { readyResolve = resolve; });
+
+  async function restoreSession() {
+    try {
+      const { data } = await sb.auth.getSession();
+      const session = data && data.session;
+      if (session && session.user) {
+        const username = await fetchUsername(session.user.id);
+        if (username) cachedUser = { id: session.user.id, username };
+      }
+    } catch (e) {}
+    readyResolve();
+  }
+  restoreSession();
+
+  function isLoggedIn() { return !!cachedUser; }
+  function currentUser() { return cachedUser; }
+
+  async function usernameTaken(username, excludeId) {
+    const { data, error } = await sb.from('profiles').select('id').ilike('username', username);
+    if (error || !data) return false;
+    return data.some((row) => row.id !== excludeId);
+  }
+
+  async function register(username, password) {
     username = (username || '').trim();
     const uErr = validateUsername(username);
     if (uErr) return { ok: false, message: uErr };
     const pErr = validatePassword(password);
     if (pErr) return { ok: false, message: pErr };
-    const users = loadUsers();
-    if (findUser(users, username)) return { ok: false, message: 'Такой ник уже занят' };
-    users.push({ username, password });
-    saveUsers(users);
-    setSession(username);
+
+    if (await usernameTaken(username)) return { ok: false, message: 'Такой ник уже занят' };
+
+    const { data, error } = await sb.auth.signUp({ email: emailFor(username), password });
+    if (error) return { ok: false, message: 'Не удалось создать аккаунт: ' + error.message };
+    if (!data.user) return { ok: false, message: 'Не удалось создать аккаунт' };
+
+    const { error: profileError } = await sb.from('profiles').insert({ id: data.user.id, username });
+    if (profileError) return { ok: false, message: 'Не удалось сохранить ник: ' + profileError.message };
+
+    cachedUser = { id: data.user.id, username };
     return { ok: true };
   }
 
-  function login(username, password) {
+  async function login(username, password) {
     username = (username || '').trim();
     if (!username || !password) return { ok: false, message: 'Заполни оба поля' };
-    const users = loadUsers();
-    const user = findUser(users, username);
-    if (!user || user.password !== password) return { ok: false, message: 'Неверный ник или пароль' };
-    setSession(user.username);
+    const { data, error } = await sb.auth.signInWithPassword({ email: emailFor(username), password });
+    if (error || !data.user) return { ok: false, message: 'Неверный ник или пароль' };
+    const realUsername = await fetchUsername(data.user.id);
+    cachedUser = { id: data.user.id, username: realUsername || username };
     return { ok: true };
   }
 
-  function changeUsername(newUsername) {
-    newUsername = (newUsername || '').trim();
-    const uErr = validateUsername(newUsername);
-    if (uErr) return { ok: false, message: uErr };
-    const current = currentUser();
-    if (!current) return { ok: false, message: 'Не авторизован' };
-    const users = loadUsers();
-    const taken = users.some((u) => u.username.toLowerCase() === newUsername.toLowerCase() && u.username.toLowerCase() !== current.username.toLowerCase());
-    if (taken) return { ok: false, message: 'Такой ник уже занят' };
-    const user = findUser(users, current.username);
-    if (!user) return { ok: false, message: 'Пользователь не найден' };
-    user.username = newUsername;
-    saveUsers(users);
-    setSession(newUsername);
-    return { ok: true };
+  async function logout() {
+    try { await sb.auth.signOut(); } catch (e) {}
+    cachedUser = null;
   }
 
-  function changePassword(currentPassword, newPassword) {
-    const current = currentUser();
-    if (!current) return { ok: false, message: 'Не авторизован' };
-    const pErr = validatePassword(newPassword);
-    if (pErr) return { ok: false, message: pErr };
-    const users = loadUsers();
-    const user = findUser(users, current.username);
-    if (!user || user.password !== currentPassword) return { ok: false, message: 'Неверный текущий пароль' };
-    user.password = newPassword;
-    saveUsers(users);
-    return { ok: true };
-  }
-
-  function deleteAccount(password) {
-    const current = currentUser();
-    if (!current) return { ok: false, message: 'Не авторизован' };
-    const users = loadUsers();
-    const user = findUser(users, current.username);
-    if (!user || user.password !== password) return { ok: false, message: 'Неверный пароль' };
-    saveUsers(users.filter((u) => u !== user));
-    logout();
-    return { ok: true };
-  }
-
-  function requireLogin() {
+  async function requireLogin() {
+    await ready;
     if (!isLoggedIn()) window.location.replace('login.html');
   }
 
+  async function changeUsername(newUsername) {
+    newUsername = (newUsername || '').trim();
+    const uErr = validateUsername(newUsername);
+    if (uErr) return { ok: false, message: uErr };
+    if (!cachedUser) return { ok: false, message: 'Не авторизован' };
+    if (await usernameTaken(newUsername, cachedUser.id)) return { ok: false, message: 'Такой ник уже занят' };
+    const { error } = await sb.from('profiles').update({ username: newUsername }).eq('id', cachedUser.id);
+    if (error) return { ok: false, message: 'Не удалось обновить ник' };
+    cachedUser.username = newUsername;
+    return { ok: true };
+  }
+
+  async function changePassword(currentPassword, newPassword) {
+    if (!cachedUser) return { ok: false, message: 'Не авторизован' };
+    const pErr = validatePassword(newPassword);
+    if (pErr) return { ok: false, message: pErr };
+    const { error: reauthError } = await sb.auth.signInWithPassword({ email: emailFor(cachedUser.username), password: currentPassword });
+    if (reauthError) return { ok: false, message: 'Неверный текущий пароль' };
+    const { error } = await sb.auth.updateUser({ password: newPassword });
+    if (error) return { ok: false, message: 'Не удалось изменить пароль' };
+    return { ok: true };
+  }
+
+  async function deleteAccount() {
+    // полное удаление пользователя из Supabase Auth требует service_role
+    // ключа — его нельзя держать в браузере, поэтому кнопка выхода есть,
+    // а самостоятельное удаление аккаунта отсюда недоступно.
+    return { ok: false, message: 'Удаление аккаунта пока недоступно' };
+  }
+
   return {
-    register, login, logout, isLoggedIn, currentUser, requireLogin,
+    ready, register, login, logout, isLoggedIn, currentUser, requireLogin,
     changeUsername, changePassword, deleteAccount,
   };
 })();

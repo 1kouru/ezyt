@@ -1,6 +1,8 @@
 /* ==========================================================================
    Schicksal Studio (ezyt.) — логика приложения
-   Хранение: localStorage (видео, группы, тема, звук).
+   Хранение: Supabase (проекты, группы, ролики — с разделением по аккаунту
+   через Row Level Security). localStorage остался только для мелких
+   локальных настроек (звук, последний открытый проект в этом браузере).
    ========================================================================== */
 
 (function () {
@@ -9,18 +11,20 @@
   const SOUND_KEY = 'ytStudioSound';
   const GROUP_COLORS = ['blue', 'purple', 'teal', 'pink', 'amber', 'green'];
 
-  // список проектов и текущий выбранный — свои у каждого аккаунта
+  // список проектов и текущий выбранный — свои у каждого аккаунта.
+  // Сами данные (проекты/группы/ролики) теперь живут в Supabase и разделены
+  // между пользователями через Row Level Security; в localStorage остаётся
+  // только "какой проект открывал последним" — чисто локальная мелочь для
+  // удобства, не критичные данные.
   function currentUsername() {
     const u = Auth.currentUser();
     return u ? u.username : 'guest';
   }
-  function workspacesKey() { return 'ytStudioWorkspaces::' + currentUsername(); }
   function activeWorkspaceStorageKey() { return 'ytStudioActiveWorkspace::' + currentUsername(); }
-  function videosKey(wsId) { return 'ytStudioVideos::' + wsId; }
-  function groupsKey(wsId) { return 'ytStudioGroups::' + wsId; }
 
   let workspaces = [];
   let activeWorkspaceId = null;
+  let workspaceVideoCounts = {};
 
   const SORT_OPTIONS = [
     { id: 'new', label: 'Новые сначала' },
@@ -97,16 +101,30 @@
 
   // ---------------------------------------------------------------- группы
 
-  function loadGroups() {
-    try {
-      const raw = localStorage.getItem(groupsKey(activeWorkspaceId));
-      if (raw) { groups = JSON.parse(raw); return; }
-    } catch (e) {}
-    groups = [];
+  function rowToGroup(row) { return Object.assign({ id: row.id }, row.data); }
+
+  async function loadGroups() {
+    const { data, error } = await sb.from('groups').select('*').eq('workspace_id', activeWorkspaceId).order('created_at', { ascending: true });
+    if (error) { showToast('Не удалось загрузить группы', 'warn'); groups = []; return; }
+    groups = (data || []).map(rowToGroup);
   }
 
-  function saveGroups() {
-    try { localStorage.setItem(groupsKey(activeWorkspaceId), JSON.stringify(groups)); } catch (e) {}
+  async function insertGroup(g) {
+    const user = Auth.currentUser();
+    const { error } = await sb.from('groups').insert({ id: g.id, workspace_id: activeWorkspaceId, user_id: user.id, data: { name: g.name, color: g.color } });
+    if (error) showToast('Не удалось сохранить группу', 'warn');
+  }
+  async function updateGroupRow(g) {
+    const { error } = await sb.from('groups').update({ data: { name: g.name, color: g.color } }).eq('id', g.id);
+    if (error) showToast('Не удалось сохранить группу', 'warn');
+  }
+  async function deleteGroupRow(id) {
+    const { error } = await sb.from('groups').delete().eq('id', id);
+    if (error) showToast('Не удалось удалить группу', 'warn');
+  }
+  async function reassignVideosGroup(oldGroupId, newGroupId) {
+    const { error } = await sb.from('videos').update({ group_id: newGroupId }).eq('group_id', oldGroupId);
+    if (error) showToast('Не удалось перенести ролики в другую группу', 'warn');
   }
 
   function groupById(id) { return groups.find((g) => g.id === id); }
@@ -121,24 +139,28 @@
   }
 
   // ---------------------------------------------------------------- проекты (workspaces)
-  // Каждый проект — своя независимая пара "видео + группы", хранится под собственным
-  // ключом. Список проектов и текущий выбранный — отдельные для каждого аккаунта.
+  // Каждый проект — своя независимая пара "видео + группы". Список проектов
+  // и сами данные хранятся в Supabase, разделены по пользователям через RLS.
 
   function workspaceUid() {
     return 'ws_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
   }
 
-  function loadWorkspaces() {
-    try {
-      const raw = localStorage.getItem(workspacesKey());
-      if (raw) workspaces = JSON.parse(raw);
-    } catch (e) {}
+  function rowToWorkspace(row) {
+    return Object.assign({ id: row.id, createdAt: new Date(row.created_at).getTime() }, row.data);
+  }
 
-    if (!workspaces || !workspaces.length) {
+  async function loadWorkspaces() {
+    const user = Auth.currentUser();
+    const { data, error } = await sb.from('workspaces').select('*').eq('user_id', user.id).order('created_at', { ascending: true });
+    if (error) { showToast('Не удалось загрузить проекты', 'warn'); workspaces = []; }
+    else workspaces = (data || []).map(rowToWorkspace);
+
+    if (!workspaces.length) {
       // первый вход этого аккаунта — сразу создаём проект по умолчанию
       const mainWs = { id: workspaceUid(), name: 'Main', color: 'blue', createdAt: Date.now() };
       workspaces = [mainWs];
-      saveWorkspaces();
+      await insertWorkspace(mainWs);
     }
 
     try { activeWorkspaceId = localStorage.getItem(activeWorkspaceStorageKey()); } catch (e) {}
@@ -147,8 +169,29 @@
     }
   }
 
-  function saveWorkspaces() {
-    try { localStorage.setItem(workspacesKey(), JSON.stringify(workspaces)); } catch (e) {}
+  async function insertWorkspace(w) {
+    const user = Auth.currentUser();
+    const { error } = await sb.from('workspaces').insert({ id: w.id, user_id: user.id, data: { name: w.name, color: w.color } });
+    if (error) showToast('Не удалось сохранить проект', 'warn');
+    else workspaceVideoCounts[w.id] = 0;
+  }
+  async function updateWorkspaceRow(w) {
+    const { error } = await sb.from('workspaces').update({ data: { name: w.name, color: w.color } }).eq('id', w.id);
+    if (error) showToast('Не удалось сохранить проект', 'warn');
+  }
+  async function deleteWorkspaceRow(id) {
+    const { error } = await sb.from('workspaces').delete().eq('id', id);
+    if (error) showToast('Не удалось удалить проект', 'warn');
+    delete workspaceVideoCounts[id];
+  }
+
+  async function refreshWorkspaceVideoCounts() {
+    const user = Auth.currentUser();
+    const { data, error } = await sb.from('videos').select('workspace_id').eq('user_id', user.id);
+    if (error) return;
+    const counts = {};
+    (data || []).forEach((row) => { counts[row.workspace_id] = (counts[row.workspace_id] || 0) + 1; });
+    workspaceVideoCounts = counts;
   }
 
   function setActiveWorkspace(id) {
@@ -167,7 +210,7 @@
     const canvasInnerEl = document.getElementById('canvasInner');
     canvasInnerEl.classList.add('is-switching');
 
-    setTimeout(() => {
+    setTimeout(async () => {
       setActiveWorkspace(id);
       currentGroupId = 'all';
       currentSearch = '';
@@ -175,8 +218,8 @@
       searchInputEl.value = '';
       searchClearBtn.hidden = true;
       isFirstRender = true;
-      loadGroups();
-      loadVideos();
+      await loadGroups();
+      await loadVideos();
       render();
       renderWorkspaceList();
       updateWorkspacePeekIndicator();
@@ -190,24 +233,40 @@
 
   // ---------------------------------------------------------------- storage
 
-  function loadVideos() {
-    try {
-      const raw = localStorage.getItem(videosKey(activeWorkspaceId));
-      videos = raw ? JSON.parse(raw) : [];
-    } catch (e) {
-      videos = [];
-    }
-    let migrated = false;
-    videos.forEach((v) => {
-      if (!groupById(v.groupId) && groups[0]) { v.groupId = groups[0].id; migrated = true; }
-      if (!v.createdAt) { v.createdAt = Date.now(); migrated = true; }
-    });
-    if (migrated) saveVideos();
+  function rowToVideo(row) {
+    return Object.assign({ id: row.id, groupId: row.group_id, done: row.done, createdAt: new Date(row.created_at).getTime() }, row.data);
+  }
+  function videoDataPart(v) {
+    return { titleDe: v.titleDe, titleRu: v.titleRu, summaryRu: v.summaryRu, thumbnailPrompt: v.thumbnailPrompt, tags: v.tags, description: v.description, script: v.script };
   }
 
-  function saveVideos() {
-    try { localStorage.setItem(videosKey(activeWorkspaceId), JSON.stringify(videos)); }
-    catch (e) { showToast('Не удалось сохранить в localStorage', 'warn'); }
+  async function loadVideos() {
+    const { data, error } = await sb.from('videos').select('*').eq('workspace_id', activeWorkspaceId).order('created_at', { ascending: false });
+    if (error) { showToast('Не удалось загрузить ролики', 'warn'); videos = []; return; }
+    videos = (data || []).map(rowToVideo);
+  }
+
+  async function insertVideoRow(v) {
+    const user = Auth.currentUser();
+    const { error } = await sb.from('videos').insert({
+      id: v.id, workspace_id: activeWorkspaceId, user_id: user.id,
+      group_id: v.groupId, done: !!v.done, data: videoDataPart(v),
+    });
+    if (error) showToast('Не удалось сохранить ролик', 'warn');
+    else workspaceVideoCounts[activeWorkspaceId] = (workspaceVideoCounts[activeWorkspaceId] || 0) + 1;
+  }
+  async function updateVideoRow(v) {
+    const { error } = await sb.from('videos').update({ group_id: v.groupId, done: !!v.done, data: videoDataPart(v) }).eq('id', v.id);
+    if (error) showToast('Не удалось сохранить ролик', 'warn');
+  }
+  async function updateVideoDone(id, done) {
+    const { error } = await sb.from('videos').update({ done }).eq('id', id);
+    if (error) showToast('Не удалось сохранить статус ролика', 'warn');
+  }
+  async function deleteVideoRow(id) {
+    const { error } = await sb.from('videos').delete().eq('id', id);
+    if (error) showToast('Не удалось удалить ролик', 'warn');
+    else if (workspaceVideoCounts[activeWorkspaceId]) workspaceVideoCounts[activeWorkspaceId] -= 1;
   }
 
   function uid() {
@@ -469,7 +528,7 @@
     const ok = await showConfirm({ title: 'Удалить ролик?', message: `«${v.titleRu || v.titleDe}» будет удалён без возможности восстановления.` });
     if (!ok) return;
     videos = videos.filter((x) => x.id !== id);
-    saveVideos();
+    deleteVideoRow(id);
     AudioFX.delete();
     showToast('Ролик удалён');
     render();
@@ -486,7 +545,7 @@
     const centerY = oldRect.top + oldRect.height / 2;
 
     video.done = !video.done;
-    saveVideos();
+    updateVideoDone(id, video.done);
 
     if (video.done) { spawnConfetti(centerX, centerY); AudioFX.success(); }
     else { AudioFX.undo(); }
@@ -630,7 +689,7 @@
     if (cardEl) toggleDone(openVideoId, cardEl);
     else {
       const v = videos.find((x) => x.id === openVideoId);
-      if (v) { v.done = modalDoneCheckbox.checked; saveVideos(); render(); }
+      if (v) { v.done = modalDoneCheckbox.checked; updateVideoDone(v.id, v.done); render(); }
     }
   });
 
@@ -684,7 +743,7 @@
     const ok = await showConfirm({ title: 'Удалить ролик?', message: `«${v.titleRu || v.titleDe}» будет удалён без возможности восстановления.` });
     if (!ok) return;
     videos = videos.filter((x) => x.id !== openVideoId);
-    saveVideos();
+    deleteVideoRow(openVideoId);
     closeModal();
     render();
     AudioFX.delete();
@@ -891,7 +950,7 @@
       if (!g) {
         g = { id: groupUid(), name: wanted, color: GROUP_COLORS[groups.length % GROUP_COLORS.length] };
         groups.push(g);
-        saveGroups();
+        insertGroup(g);
         createdGroupName = g.name;
       }
       populateGroupSelect(g.id);
@@ -933,7 +992,7 @@
       titleRu: v.titleRu ? v.titleRu + ' (копия)' : v.titleRu,
     });
     videos.push(copy);
-    saveVideos();
+    insertVideoRow(copy);
     closeModal();
     render();
     AudioFX.add();
@@ -973,15 +1032,16 @@
     let newId = null;
     if (fields.id.value) {
       const v = videos.find((x) => x.id === fields.id.value);
-      if (v) Object.assign(v, payload);
+      if (v) { Object.assign(v, payload); updateVideoRow(v); }
       showToast('Изменения сохранены');
     } else {
       newId = uid();
-      videos.push(Object.assign({ id: newId, done: false, createdAt: Date.now() }, payload));
+      const newVideo = Object.assign({ id: newId, done: false, createdAt: Date.now() }, payload);
+      videos.push(newVideo);
+      insertVideoRow(newVideo);
       AudioFX.add();
       showToast('Ролик добавлен');
     }
-    saveVideos();
     closePanel();
     render();
 
@@ -1036,7 +1096,7 @@
     const newName = input.value.trim();
     if (!newName) { input.value = g.name; return; }
     g.name = newName;
-    saveGroups();
+    updateGroupRow(g);
     render();
     showToast('Группа переименована');
   });
@@ -1057,8 +1117,8 @@
     const fallbackId = groups[0].id;
     videos.forEach((v) => { if (v.groupId === g.id) v.groupId = fallbackId; });
     if (currentGroupId === g.id) currentGroupId = 'all';
-    saveGroups();
-    saveVideos();
+    await reassignVideosGroup(g.id, fallbackId);
+    deleteGroupRow(g.id);
     renderGroupsList();
     render();
     AudioFX.delete();
@@ -1071,7 +1131,7 @@
     if (groups.some((g) => g.name.toLowerCase() === name.toLowerCase())) { showToast('Такая группа уже есть', 'warn'); return; }
     const g = { id: groupUid(), name, color: newGroupSelectedColor };
     groups.push(g);
-    saveGroups();
+    insertGroup(g);
     newGroupName.value = '';
     newGroupSelectedColor = GROUP_COLORS[(groups.length) % GROUP_COLORS.length];
     renderColorSwatches();
@@ -1107,9 +1167,9 @@
   // ------------------------------------------------------------------ аккаунт
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
-    const ok = await showConfirm({ title: 'Выйти из аккаунта?', message: 'Данные роликов останутся в этом браузере — при следующем входе они будут на месте.', confirmLabel: 'Выйти' });
+    const ok = await showConfirm({ title: 'Выйти из аккаунта?', message: 'Все данные сохранены в аккаунте — при следующем входе (с любого устройства) они будут на месте.', confirmLabel: 'Выйти' });
     if (!ok) return;
-    Auth.logout();
+    await Auth.logout();
     window.location.href = 'login.html';
   });
 
@@ -1146,20 +1206,20 @@
   document.getElementById('settingsClose').addEventListener('click', closeSettings);
   settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
 
-  document.getElementById('formUsername').addEventListener('submit', (e) => {
+  document.getElementById('formUsername').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const result = Auth.changeUsername(settingsUsernameInput.value);
+    const result = await Auth.changeUsername(settingsUsernameInput.value);
     if (!result.ok) { usernameErrorEl.textContent = result.message; AudioFX.undo(); return; }
     usernameErrorEl.textContent = '';
     AudioFX.success();
     showToast('Ник обновлён');
   });
 
-  document.getElementById('formPassword').addEventListener('submit', (e) => {
+  document.getElementById('formPassword').addEventListener('submit', async (e) => {
     e.preventDefault();
     const current = document.getElementById('settingsCurrentPassword').value;
     const next = document.getElementById('settingsNewPassword').value;
-    const result = Auth.changePassword(current, next);
+    const result = await Auth.changePassword(current, next);
     if (!result.ok) { passwordErrorEl.textContent = result.message; AudioFX.undo(); return; }
     passwordErrorEl.textContent = '';
     document.getElementById('settingsCurrentPassword').value = '';
@@ -1249,11 +1309,8 @@
   }
 
   function workspaceVideoCount(w) {
-    try {
-      const raw = localStorage.getItem(videosKey(w.id));
-      if (raw) return JSON.parse(raw).length;
-    } catch (e) {}
-    return w.id === activeWorkspaceId ? videos.length : 0;
+    if (w.id === activeWorkspaceId) return videos.length;
+    return workspaceVideoCounts[w.id] || 0;
   }
 
   const workspacePeekDot = document.getElementById('workspacePeekDot');
@@ -1362,7 +1419,7 @@
     if (folderModalMode === 'create') {
       const w = { id: workspaceUid(), name, color: folderModalColor, createdAt: Date.now() };
       workspaces.push(w);
-      saveWorkspaces();
+      insertWorkspace(w);
       renderWorkspaceList();
       AudioFX.add();
       closeFolderModal();
@@ -1372,7 +1429,7 @@
       if (!w) return;
       w.name = name;
       w.color = folderModalColor;
-      saveWorkspaces();
+      updateWorkspaceRow(w);
       renderWorkspaceList();
       if (w.id === activeWorkspaceId) updateWorkspacePeekIndicator();
       showToast('Проект обновлён');
@@ -1389,12 +1446,11 @@
       message: 'Вместе с проектом удалятся все его ролики и группы. Это необратимо.',
     });
     if (!ok) return;
-    try { localStorage.removeItem(videosKey(w.id)); localStorage.removeItem(groupsKey(w.id)); } catch (err) {}
+    await deleteWorkspaceRow(w.id); // каскадом удалит все группы и ролики этого проекта
     workspaces = workspaces.filter((x) => x.id !== w.id);
-    saveWorkspaces();
     if (activeWorkspaceId === w.id) {
       setActiveWorkspace(workspaces[0].id);
-      loadGroups(); loadVideos(); isFirstRender = true; render();
+      await loadGroups(); await loadVideos(); isFirstRender = true; render();
     }
     renderWorkspaceList();
     AudioFX.delete();
@@ -1655,11 +1711,15 @@
 
   // ------------------------------------------------------------------ init
 
-  loadWorkspaces();
-  renderWorkspaceList();
-  updateWorkspacePeekIndicator();
-  loadGroups();
-  loadVideos();
-  render();
-  centerCanvas();
+  (async function initApp() {
+    await Auth.ready;
+    await loadWorkspaces();
+    await refreshWorkspaceVideoCounts();
+    renderWorkspaceList();
+    updateWorkspacePeekIndicator();
+    await loadGroups();
+    await loadVideos();
+    render();
+    centerCanvas();
+  })();
 })();

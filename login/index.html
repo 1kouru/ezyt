@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ezyt</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23090a0d'/%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f8cff'/%3E%3Cstop offset='1' stop-color='%23b07bff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='16' y='27' width='68' height='46' rx='16' fill='url(%23g)'/%3E%3Cpath d='M42 37 L42 63 L64 50 Z' fill='%23ffffff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/supabaseConfig.js"></script>
+<style>
+  body { overflow: auto; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+
+  .auth-bg-glow {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--blue) 14%, transparent), transparent 45%),
+                radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--purple) 16%, transparent), transparent 45%);
+  }
+
+  .auth-wrap { position: relative; z-index: 1; width: min(420px, 92vw); padding: 20px 0 60px; }
+
+  .auth-logo { display: flex; justify-content: center; margin-bottom: 34px; }
+  .auth-logo img { height: 78px; filter: invert(1) brightness(1.15); }
+
+  /* иконка глаза стоит от низа поля, а не от центра всего блока —
+     иначе с учётом подписи сверху она "плавает" где-то между ними */
+  .auth-field-pw-wrap { position: relative; }
+  .auth-field-pw-wrap input { width: 100%; padding-right: 42px; box-sizing: border-box; }
+  .auth-eye-toggle {
+    position: absolute; right: 6px; bottom: 6px;
+    width: 30px; height: 30px; border: none; background: transparent; color: var(--text-faint);
+    display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 8px;
+    transition: color .2s ease, background .2s ease, transform .2s var(--ease-bounce);
+  }
+  .auth-eye-toggle:hover { color: var(--text); background: var(--bg-elevated); }
+  .auth-eye-toggle:active { transform: scale(.9); }
+  .auth-eye-toggle.is-active { color: var(--blue); }
+
+  @media (max-width: 480px) {
+    .auth-logo img { height: 60px; }
+    .auth-card { padding: 26px 20px 24px; }
+    .auth-wrap { padding: 12px 0 40px; }
+  }
+
+  .auth-card {
+    background: var(--bg-elevated); border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg); box-shadow: 0 30px 90px rgba(0,0,0,0.5);
+    padding: 34px 32px 30px; position: relative; overflow: hidden;
+  }
+  .auth-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--grad-accent); opacity: .85;
+  }
+
+  .auth-tabs { display: flex; gap: 4px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 12px; padding: 4px; margin-bottom: 26px; }
+  .auth-tab {
+    flex: 1; border: none; background: transparent; color: var(--text-faint);
+    font-family: var(--font); font-weight: 700; font-size: 13.5px; padding: 10px; border-radius: 9px;
+    cursor: pointer; transition: background .25s var(--ease-smooth), color .2s;
+  }
+  .auth-tab.is-active { background: var(--bg-elevated); color: var(--text); box-shadow: 0 0 0 1px var(--border-strong); }
+
+  .auth-title { font-size: 21px; font-weight: 800; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .auth-subtitle { font-size: 13px; color: var(--text-faint); margin: 0 0 26px; line-height: 1.5; }
+
+  .auth-form { display: flex; flex-direction: column; gap: 16px; }
+  .auth-field { display: flex; flex-direction: column; gap: 7px; }
+  .auth-field label { font-size: 12px; font-weight: 700; color: var(--text-dim); }
+  .auth-field input {
+    font-family: var(--font); font-size: 14px; color: var(--text);
+    background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 12px 14px; outline: none; transition: border-color .2s, box-shadow .2s;
+  }
+  .auth-field input:focus { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(120,150,255,0.12); }
+  .auth-error { font-size: 12.5px; color: #ff8a8a; min-height: 16px; margin: -6px 0 0; }
+
+  .auth-submit {
+    margin-top: 4px; width: 100%; justify-content: center; padding: 13px; font-size: 14px;
+  }
+  .auth-hint { text-align: center; font-size: 12px; color: var(--text-faint); margin-top: 22px; line-height: 1.5; }
+
+  .auth-panel { animation: authIn .4s var(--ease-snap) both; }
+  @keyframes authIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  html.auth-pending body { visibility: hidden; }
+</style>
+</head>
+<body>
+
+  <div class="auth-bg-glow" aria-hidden="true"></div>
+  <div class="noise-overlay" aria-hidden="true"></div>
+
+  <div class="auth-wrap">
+    <div class="auth-logo"><img src="/logo-ezyt.png" alt="ezyt."></div>
+
+    <div class="auth-card">
+      <div class="auth-tabs" role="tablist">
+        <button type="button" class="auth-tab is-active" id="tabLogin" role="tab">Вход</button>
+        <button type="button" class="auth-tab" id="tabRegister" role="tab">Регистрация</button>
+      </div>
+
+      <div id="panelLogin" class="auth-panel">
+        <h1 class="auth-title">С возвращением</h1>
+        <p class="auth-subtitle">Войди, чтобы продолжить работу над роликами.</p>
+        <form class="auth-form" id="formLogin" autocomplete="off">
+          <div class="auth-field">
+            <label for="loginIdentifier">Ник или email</label>
+            <input type="text" id="loginIdentifier" name="ezyt-id" placeholder="username или email@example.com" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required minlength="2" readonly>
+          </div>
+          <div class="auth-field auth-field-pw-wrap">
+            <label for="loginPassword">Пароль</label>
+            <input type="password" id="loginPassword" name="ezyt-pw" placeholder="******" autocomplete="off" required>
+            <button type="button" class="auth-eye-toggle" data-for="loginPassword" title="Показать пароль">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M2 12C4 7.5 7.5 5 12 5C16.5 5 20 7.5 22 12C20 16.5 16.5 19 12 19C7.5 19 4 16.5 2 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+            </button>
+          </div>
+          <p class="auth-error" id="loginError"></p>
+          <button type="submit" class="btn btn-primary auth-submit">Войти</button>
+        </form>
+        <p class="auth-hint">Нет аккаунта? <a href="#" id="goToRegister" style="color:var(--blue);text-decoration:none;font-weight:700;">Зарегистрируйся</a></p>
+      </div>
+
+      <div id="panelRegister" class="auth-panel" hidden>
+        <h1 class="auth-title">Создать аккаунт</h1>
+        <p class="auth-subtitle">Займёт меньше минуты.</p>
+        <form class="auth-form" id="formRegister" autocomplete="off">
+          <div class="auth-field">
+            <label for="registerUsername">Ник</label>
+            <input type="text" id="registerUsername" name="ezyt-nick-new" placeholder="username" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required minlength="2" readonly>
+          </div>
+          <div class="auth-field">
+            <label for="registerEmail">Email</label>
+            <input type="email" id="registerEmail" name="ezyt-email-new" placeholder="email@example.com" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required>
+          </div>
+          <div class="auth-field auth-field-pw-wrap">
+            <label for="registerPassword">Пароль</label>
+            <input type="password" id="registerPassword" name="ezyt-pw-new" placeholder="******" autocomplete="off" required minlength="6">
+            <button type="button" class="auth-eye-toggle" data-for="registerPassword" title="Показать пароль">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M2 12C4 7.5 7.5 5 12 5C16.5 5 20 7.5 22 12C20 16.5 16.5 19 12 19C7.5 19 4 16.5 2 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+            </button>
+          </div>
+          <p class="auth-error" id="registerError"></p>
+          <button type="submit" class="btn btn-primary auth-submit">Создать аккаунт</button>
+        </form>
+        <p class="auth-hint">Уже есть аккаунт? <a href="#" id="goToLogin" style="color:var(--blue);text-decoration:none;font-weight:700;">Войти</a></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/auth.js"></script>
+  <script>
+    (async function () {
+      document.documentElement.classList.add('auth-pending');
+      const tabLogin = document.getElementById('tabLogin');
+      const tabRegister = document.getElementById('tabRegister');
+      const panelLogin = document.getElementById('panelLogin');
+      const panelRegister = document.getElementById('panelRegister');
+
+      function show(which) {
+        const isLogin = which === 'login';
+        tabLogin.classList.toggle('is-active', isLogin);
+        tabRegister.classList.toggle('is-active', !isLogin);
+        panelLogin.hidden = !isLogin;
+        panelRegister.hidden = isLogin;
+      }
+      // Chromium игнорирует autocomplete="off" для полей рядом с паролем и всё
+      // равно лезет туда с сохранённой почтой/логином. Поле "только для чтения"
+      // до первого клика/фокуса браузер автозаполнением не трогает.
+      document.querySelectorAll('input[readonly]').forEach((el) => {
+        const unlock = () => el.removeAttribute('readonly');
+        el.addEventListener('focus', unlock, { once: true });
+        el.addEventListener('pointerdown', unlock, { once: true });
+      });
+
+      document.querySelectorAll('.auth-eye-toggle').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const input = document.getElementById(btn.dataset.for);
+          const showing = input.type === 'text';
+          input.type = showing ? 'password' : 'text';
+          btn.classList.toggle('is-active', !showing);
+        });
+      });
+
+      tabLogin.addEventListener('click', () => show('login'));
+      tabRegister.addEventListener('click', () => show('register'));
+      document.getElementById('goToRegister').addEventListener('click', (e) => { e.preventDefault(); show('register'); });
+      document.getElementById('goToLogin').addEventListener('click', (e) => { e.preventDefault(); show('login'); });
+
+      // если уже вошли — сразу в приложение, форма логина не нужна
+      await Auth.ready;
+      if (Auth.isLoggedIn()) { window.location.replace('/'); return; }
+      document.documentElement.classList.remove('auth-pending');
+
+      function setBusy(form, busy) {
+        form.querySelector('button[type="submit"]').disabled = busy;
+      }
+
+      document.getElementById('formLogin').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const identifier = document.getElementById('loginIdentifier').value.trim();
+        const password = document.getElementById('loginPassword').value;
+        const err = document.getElementById('loginError');
+        err.textContent = '';
+        setBusy(e.target, true);
+        const result = await Auth.login(identifier, password);
+        setBusy(e.target, false);
+        if (!result.ok) { err.textContent = result.message; return; }
+        window.location.replace('/');
+      });
+
+      document.getElementById('formRegister').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('registerUsername').value.trim();
+        const email = document.getElementById('registerEmail').value.trim();
+        const password = document.getElementById('registerPassword').value;
+        const err = document.getElementById('registerError');
+        err.textContent = '';
+        setBusy(e.target, true);
+        const result = await Auth.register(username, email, password);
+        setBusy(e.target, false);
+        if (!result.ok) { err.textContent = result.message; return; }
+        window.location.replace('/');
+      });
+    })();
+  </script>
+</body>
+</html>

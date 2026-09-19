@@ -1,9 +1,10 @@
 /* ==========================================================================
    ezyt — авторизация через Supabase (реальная база данных).
-   Вход — по нику и паролю; email собирается только при регистрации и
-   хранится приватно в profiles. Для самого Supabase Auth используется
-   отдельный служебный email на основе ника (см. authEmailFor) — так вход
-   остаётся по нику, а лимит на письма подтверждения не расходуется зря.
+   Регистрация — ник + email + пароль. Вход — по нику ИЛИ по email (одно
+   поле, распознаём автоматически по "@") + пароль. Для самого Supabase
+   Auth используется отдельный служебный email на основе ника
+   (см. authEmailFor) — так письма подтверждения никогда не шлются на
+   настоящий адрес и не расходуют лимит.
    ========================================================================== */
 
 window.Auth = (function () {
@@ -63,6 +64,16 @@ window.Auth = (function () {
     if (error) return false;
     return !!data;
   }
+  async function emailTaken(email, excludeId) {
+    const { data, error } = await sb.rpc('is_email_taken', { check_email: email, exclude_id: excludeId || null });
+    if (error) return false;
+    return !!data;
+  }
+  async function usernameForEmail(email) {
+    const { data, error } = await sb.rpc('username_for_email', { p_email: email });
+    if (error) return null;
+    return data || null;
+  }
 
   async function register(username, email, password) {
     username = (username || '').trim();
@@ -75,23 +86,40 @@ window.Auth = (function () {
     if (pErr) return { ok: false, message: pErr };
 
     if (await usernameTaken(username)) return { ok: false, message: 'Такой ник уже занят' };
+    if (await emailTaken(email)) return { ok: false, message: 'Такой email уже используется' };
 
     const { data, error } = await sb.auth.signUp({ email: authEmailFor(username), password });
-    if (error) return { ok: false, message: 'Не удалось создать аккаунт: ' + error.message };
+    if (error) {
+      const msg = /registered/i.test(error.message) ? 'Этот ник уже занят, выбери другой' : 'Не удалось создать аккаунт: ' + error.message;
+      return { ok: false, message: msg };
+    }
     if (!data.user) return { ok: false, message: 'Не удалось создать аккаунт' };
 
     const { error: profileError } = await sb.from('profiles').insert({ id: data.user.id, username, email });
-    if (profileError) return { ok: false, message: 'Не удалось сохранить профиль: ' + profileError.message };
+    if (profileError) {
+      await sb.auth.signOut();
+      const msg = profileError.code === '23505' ? 'Такой ник или email уже используется' : 'Не удалось сохранить профиль: ' + profileError.message;
+      return { ok: false, message: msg };
+    }
 
     cachedUser = { id: data.user.id, username, email };
     return { ok: true };
   }
 
-  async function login(username, password) {
-    username = (username || '').trim();
-    if (!username || !password) return { ok: false, message: 'Заполни оба поля' };
+  // identifier — ник или email, определяем автоматически по наличию "@"
+  async function login(identifier, password) {
+    identifier = (identifier || '').trim();
+    if (!identifier || !password) return { ok: false, message: 'Заполни оба поля' };
+
+    let username = identifier;
+    if (identifier.includes('@')) {
+      const resolved = await usernameForEmail(identifier);
+      if (!resolved) return { ok: false, message: 'Неверный ник/email или пароль' };
+      username = resolved;
+    }
+
     const { data, error } = await sb.auth.signInWithPassword({ email: authEmailFor(username), password });
-    if (error || !data.user) return { ok: false, message: 'Неверный ник или пароль' };
+    if (error || !data.user) return { ok: false, message: 'Неверный ник/email или пароль' };
     const profile = await fetchProfile(data.user.id);
     cachedUser = { id: data.user.id, username: (profile && profile.username) || username, email: profile && profile.email };
     return { ok: true };
@@ -112,7 +140,14 @@ window.Auth = (function () {
     const uErr = validateUsername(newUsername);
     if (uErr) return { ok: false, message: uErr };
     if (!cachedUser) return { ok: false, message: 'Не авторизован' };
+    if (newUsername.toLowerCase() === cachedUser.username.toLowerCase()) return { ok: true };
     if (await usernameTaken(newUsername, cachedUser.id)) return { ok: false, message: 'Такой ник уже занят' };
+
+    // служебный email в Supabase Auth завязан на ник — меняем и его,
+    // иначе следующий вход под новым ником не найдёт аккаунт
+    const { error: authError } = await sb.auth.updateUser({ email: authEmailFor(newUsername) });
+    if (authError) return { ok: false, message: 'Не удалось обновить ник: ' + authError.message };
+
     const { error } = await sb.from('profiles').update({ username: newUsername }).eq('id', cachedUser.id);
     if (error) return { ok: false, message: 'Не удалось обновить ник' };
     cachedUser.username = newUsername;

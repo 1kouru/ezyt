@@ -106,8 +106,8 @@
         <p class="auth-subtitle">Войди, чтобы продолжить работу над роликами.</p>
         <form class="auth-form" id="formLogin" autocomplete="off">
           <div class="auth-field">
-            <label for="loginUsername">Ник</label>
-            <input type="text" id="loginUsername" name="ezyt-nick" placeholder="username" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required minlength="2" readonly>
+            <label for="loginIdentifier">Ник или email</label>
+            <input type="text" id="loginIdentifier" name="ezyt-id" placeholder="username или email@example.com" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" required minlength="2" readonly>
           </div>
           <div class="auth-field auth-field-pw-wrap">
             <label for="loginPassword">Пароль</label>
@@ -199,12 +199,12 @@
 
       document.getElementById('formLogin').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const username = document.getElementById('loginUsername').value.trim();
+        const identifier = document.getElementById('loginIdentifier').value.trim();
         const password = document.getElementById('loginPassword').value;
         const err = document.getElementById('loginError');
         err.textContent = '';
         setBusy(e.target, true);
-        const result = await Auth.login(username, password);
+        const result = await Auth.login(identifier, password);
         setBusy(e.target, false);
         if (!result.ok) { err.textContent = result.message; return; }
         window.location.replace('index.html');

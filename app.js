@@ -708,32 +708,59 @@
     copyText(modalScript.textContent, e.currentTarget);
   });
 
-  function copyText(text, btn) {
-    navigator.clipboard.writeText(text).then(() => {
-      AudioFX.click();
-      if (btn) {
-        // у кнопок-иконок (без текста) просто подсвечиваем класс — подмена
-        // textContent стёрла бы саму иконку и не восстановила бы её обратно
-        const isIconOnly = !!btn.querySelector('svg');
-        btn.classList.add('is-copied');
-        if (isIconOnly) {
-          setTimeout(() => btn.classList.remove('is-copied'), 1600);
-        } else {
-          const original = btn.textContent;
-          btn.textContent = 'Скопировано ✓';
-          setTimeout(() => { btn.textContent = original; btn.classList.remove('is-copied'); }, 1600);
-        }
+  // Резервный способ копирования через скрытое поле ввода — Clipboard API
+  // (navigator.clipboard) требует HTTPS и может быть заблокирован настройками
+  // браузера/системы, а execCommand работает почти везде, если это прямой
+  // результат клика пользователя.
+  function legacyCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  function onCopySuccess(btn, message) {
+    AudioFX.click();
+    if (btn) {
+      // у кнопок-иконок (без текста) просто подсвечиваем класс — подмена
+      // textContent стёрла бы саму иконку и не восстановила бы её обратно
+      const isIconOnly = !!btn.querySelector('svg');
+      btn.classList.add('is-copied');
+      if (isIconOnly) {
+        setTimeout(() => btn.classList.remove('is-copied'), 1600);
+      } else {
+        const original = btn.textContent;
+        btn.textContent = 'Скопировано ✓';
+        setTimeout(() => { btn.textContent = original; btn.classList.remove('is-copied'); }, 1600);
       }
-      showToast('Скопировано в буфер обмена');
-    }).catch(() => showToast('Не удалось скопировать', 'warn'));
+    }
+    showToast(message || 'Скопировано в буфер обмена');
+  }
+
+  function copyText(text, btn, message) {
+    const fallback = () => {
+      if (legacyCopy(text)) onCopySuccess(btn, message);
+      else showToast('Не удалось скопировать — выдели текст вручную', 'warn');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => onCopySuccess(btn, message)).catch(fallback);
+    } else {
+      fallback();
+    }
   }
 
   ttsBtn.addEventListener('click', () => {
     const script = ttsBtn.dataset.script || '';
-    if (script) {
-      navigator.clipboard.writeText(script).catch(() => {});
-      showToast('Текст сценария скопирован — вставь его на edge-tts.com');
-    }
+    if (script) copyText(script, null, 'Текст сценария скопирован — вставь его на edge-tts.com');
   });
 
   document.getElementById('deleteBtn').addEventListener('click', async () => {
@@ -883,7 +910,7 @@
   }
 
   // ------------------------------------------------------------------ быстрая вставка одним текстом
-  // Формат: [название] / [перевод] / [суть] / [обложка] / [теги] / [описание] / [текст],
+  // Формат: [название] / [перевод] / [суть] / [промт для обложки] / [теги] / [описание] / [текст],
   // дальше на новой строке — сам текст этого поля до следующей метки.
 
   const bulkPasteSection = document.getElementById('bulkPasteSection');
@@ -934,7 +961,7 @@
   });
   document.getElementById('bulkPasteCancel').addEventListener('click', () => { AudioFX.close(); closeBulkPaste(); });
 
-  const BULK_TEMPLATE = '[группа]\n\n\n[название]\n\n\n[перевод]\n\n\n[суть]\n\n\n[обложка]\n\n\n[теги]\n\n\n[описание]\n\n\n[текст]\n';
+  const BULK_TEMPLATE = '[группа]\n\n\n[название]\n\n\n[перевод]\n\n\n[суть]\n\n\n[промт для обложки]\n\n\n[теги]\n\n\n[описание]\n\n\n[текст]\n';
   document.getElementById('bulkPasteCopyTemplate').addEventListener('click', (e) => {
     copyText(BULK_TEMPLATE, e.currentTarget);
   });

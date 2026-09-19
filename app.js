@@ -218,9 +218,12 @@
       searchInputEl.value = '';
       searchClearBtn.hidden = true;
       isFirstRender = true;
+      isFirstNotesRender = true;
       await loadGroups();
       await loadVideos();
+      await loadNotes();
       render();
+      renderNotes();
       renderWorkspaceList();
       updateWorkspacePeekIndicator();
       requestAnimationFrame(() => canvasInnerEl.classList.remove('is-switching'));
@@ -267,6 +270,43 @@
     const { error } = await sb.from('videos').delete().eq('id', id);
     if (error) showToast('Не удалось удалить ролик', 'warn');
     else if (workspaceVideoCounts[activeWorkspaceId]) workspaceVideoCounts[activeWorkspaceId] -= 1;
+  }
+
+  // ---------------------------------------------------------------- заметки
+
+  let notes = [];
+  function noteUid() {
+    return 'note_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  }
+  function rowToNote(row) {
+    return Object.assign({ id: row.id, createdAt: new Date(row.created_at).getTime() }, row.data);
+  }
+
+  async function loadNotes() {
+    const { data, error } = await sb.from('notes').select('*').eq('workspace_id', activeWorkspaceId).order('created_at', { ascending: true });
+    if (error) { showToast('Не удалось загрузить заметки', 'warn'); notes = []; return; }
+    notes = (data || []).map(rowToNote);
+  }
+  async function insertNoteRow(n) {
+    const user = Auth.currentUser();
+    const { error } = await sb.from('notes').insert({ id: n.id, workspace_id: activeWorkspaceId, user_id: user.id, data: { text: n.text, color: n.color } });
+    if (error) showToast('Не удалось сохранить заметку', 'warn');
+  }
+  async function updateNoteRow(n) {
+    const { error } = await sb.from('notes').update({ data: { text: n.text, color: n.color } }).eq('id', n.id);
+    if (error) showToast('Не удалось сохранить заметку', 'warn');
+  }
+  async function deleteNoteRow(id) {
+    const { error } = await sb.from('notes').delete().eq('id', id);
+    if (error) showToast('Не удалось удалить заметку', 'warn');
+  }
+
+  function debounce(fn, delay) {
+    let t = null;
+    return function (...args) {
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(this, args), delay);
+    };
   }
 
   function uid() {
@@ -498,6 +538,99 @@
     const done = videos.filter((v) => v.done).length;
     statsBar.innerHTML = `<b>${total}</b> роликов <span class="dot">·</span> <b>${done}</b> готово`;
   }
+
+  // ------------------------------------------------------------------ заметки
+
+  const notesGrid = document.getElementById('notesGrid');
+  const notesCountEl = document.getElementById('notesCount');
+  let isFirstNotesRender = true;
+
+  function noteHtml(n, enterDelay) {
+    const styleAttr = `--note-c:var(--${n.color || 'blue'})` + (enterDelay != null ? `;animation-delay:${enterDelay}ms` : '');
+    return `
+      <article class="note-card${isFirstNotesRender ? ' note-enter' : ''}" data-id="${n.id}" style="${styleAttr}">
+        <button class="note-delete" data-action="delete-note" title="Удалить заметку">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+        </button>
+        <span class="note-saved" data-role="saved">✓ сохранено</span>
+        <textarea class="note-text" data-role="text" placeholder="Заметка…">${escapeHtml(n.text || '')}</textarea>
+      </article>`;
+  }
+
+  function autosizeNoteTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.max(90, el.scrollHeight) + 'px';
+  }
+
+  function renderNotes() {
+    const addTileHtml = `
+      <button type="button" class="note-card note-card--add" id="addNoteBtn" title="Добавить заметку">
+        <span class="plus-icon">+</span>
+        <span>Новая заметка</span>
+      </button>`;
+    notesGrid.innerHTML = notes.map((n, i) => noteHtml(n, isFirstNotesRender ? i * 45 : null)).join('') + addTileHtml;
+    notesCountEl.textContent = notes.length;
+
+    notesGrid.querySelectorAll('.note-text').forEach((ta) => autosizeNoteTextarea(ta));
+
+    if (isFirstNotesRender) {
+      notesGrid.querySelectorAll('.note-card.note-enter').forEach((el) => {
+        el.addEventListener('animationend', () => el.classList.remove('note-enter'), { once: true });
+      });
+    }
+    isFirstNotesRender = false;
+  }
+
+  const saveNoteText = debounce((id, text) => {
+    const n = notes.find((x) => x.id === id);
+    if (!n) return;
+    n.text = text;
+    updateNoteRow(n);
+    const card = notesGrid.querySelector(`.note-card[data-id="${id}"]`);
+    const savedDot = card && card.querySelector('[data-role="saved"]');
+    if (savedDot) {
+      savedDot.classList.add('is-flash');
+      setTimeout(() => savedDot.classList.remove('is-flash'), 900);
+    }
+  }, 500);
+
+  notesGrid.addEventListener('input', (e) => {
+    const ta = e.target.closest('.note-text');
+    if (!ta) return;
+    autosizeNoteTextarea(ta);
+    const card = ta.closest('.note-card');
+    saveNoteText(card.dataset.id, ta.value);
+  });
+
+  notesGrid.addEventListener('click', async (e) => {
+    if (e.target.closest('#addNoteBtn')) {
+      const n = { id: noteUid(), text: '', color: GROUP_COLORS[notes.length % GROUP_COLORS.length], createdAt: Date.now() };
+      notes.push(n);
+      insertNoteRow(n);
+      AudioFX.add();
+      renderNotes();
+      const newCard = notesGrid.querySelector(`.note-card[data-id="${n.id}"] .note-text`);
+      if (newCard) newCard.focus();
+      return;
+    }
+    const delBtn = e.target.closest('[data-action="delete-note"]');
+    if (delBtn) {
+      const card = delBtn.closest('.note-card');
+      const id = card.dataset.id;
+      const n = notes.find((x) => x.id === id);
+      if (n && n.text && n.text.trim()) {
+        const ok = await showConfirm({ title: 'Удалить заметку?', message: 'Текст заметки будет удалён без возможности восстановления.' });
+        if (!ok) return;
+      }
+      card.classList.add('note-leaving');
+      AudioFX.delete();
+      setTimeout(() => {
+        notes = notes.filter((x) => x.id !== id);
+        deleteNoteRow(id);
+        renderNotes();
+      }, 220);
+    }
+  });
 
   // ------------------------------------------------------------------ клики по карточкам (делегирование)
 
@@ -1477,7 +1610,8 @@
     workspaces = workspaces.filter((x) => x.id !== w.id);
     if (activeWorkspaceId === w.id) {
       setActiveWorkspace(workspaces[0].id);
-      await loadGroups(); await loadVideos(); isFirstRender = true; render();
+      await loadGroups(); await loadVideos(); await loadNotes();
+      isFirstRender = true; isFirstNotesRender = true; render(); renderNotes();
     }
     renderWorkspaceList();
     AudioFX.delete();
@@ -1611,11 +1745,11 @@
   viewport.addEventListener('pointerdown', (e) => {
     if (isMobileLayout()) return; // на телефоне — обычная прокрутка, панорамирование выключено
     const isMiddleButton = e.button === 1;
-    const onRealControl = e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('.custom-select');
+    const onRealControl = e.target.closest('button') || e.target.closest('a') || e.target.closest('input') || e.target.closest('textarea') || e.target.closest('.custom-select');
     if (onRealControl) return; // настоящие кнопки/поля/дропдауны не трогаем никакой кнопкой мыши
     // ЛКМ панорамирует только с пустого места (по карточке — открывает её).
-    // Средняя кнопка мыши (зажать колёсико) панорамирует всегда, даже прямо над карточкой.
-    if (!isMiddleButton && e.target.closest('.card')) return;
+    // Средняя кнопка мыши (зажать колёсико) панорамирует всегда, даже прямо над карточкой/заметкой.
+    if (!isMiddleButton && (e.target.closest('.card') || e.target.closest('.note-card'))) return;
 
     stopMomentum();
     pointerDownPos = { x: e.clientX, y: e.clientY };
@@ -1746,7 +1880,9 @@
     updateWorkspacePeekIndicator();
     await loadGroups();
     await loadVideos();
+    await loadNotes();
     render();
+    renderNotes();
     centerCanvas();
   })();
 })();

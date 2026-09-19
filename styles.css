@@ -507,6 +507,80 @@ body {
 .card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 8px; }
 .card-meta { font-size: 11px; color: var(--text-faint); font-weight: 600; display: flex; gap: 8px; align-items: center; }
 
+/* ---------------------------------- Заметки ---------------------------------- */
+
+.notes-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px;
+  align-items: start;
+}
+
+.note-card {
+  --note-c: var(--blue);
+  position: relative; background: var(--card-bg);
+  border: 1px solid var(--border); border-top: 2px solid var(--note-c);
+  border-radius: var(--radius-md); padding: 16px 14px 12px;
+  transition: transform .3s var(--ease-bounce), box-shadow .3s var(--ease-smooth), border-color .25s ease, opacity .22s ease;
+}
+.note-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--note-c) 16%, transparent);
+  border-color: var(--border-strong); border-top-color: var(--note-c);
+}
+.note-card.note-enter { animation: cardIn .5s var(--ease-bounce) both; }
+.note-card.note-leaving { animation: noteOut .22s var(--ease-smooth) both; }
+@keyframes noteOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(.9) translateY(-6px); }
+}
+
+.note-text {
+  width: 100%; min-height: 90px; resize: none; overflow: hidden;
+  border: none; background: transparent; outline: none;
+  font-family: var(--font); font-size: 13.5px; font-weight: 500; line-height: 1.5;
+  color: var(--text); padding: 0;
+}
+.note-text::placeholder { color: var(--text-faint); }
+
+.note-delete {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 24px; height: 24px; border-radius: 50%; border: none;
+  background: var(--bg-elevated); color: var(--text-faint);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  opacity: 0; transform: scale(.7); pointer-events: none;
+  transition: opacity .2s ease, transform .25s var(--ease-bounce), color .2s, background .2s;
+}
+.note-card:hover .note-delete { opacity: 1; transform: scale(1); pointer-events: auto; }
+.note-delete:hover { color: #ff6f6f; background: rgba(255,111,111,.14); }
+.note-delete:active { transform: scale(.85); }
+
+/* плашка "сохранено" всплывает над карточкой и гаснет — не перекрывает
+   ни текст заметки, ни крестик удаления в углу */
+.note-saved {
+  position: absolute; top: -9px; left: 50%; z-index: 3;
+  display: flex; align-items: center; white-space: nowrap;
+  padding: 3px 10px; border-radius: 20px;
+  background: var(--note-c); color: #06070a;
+  font-family: var(--font); font-size: 10px; font-weight: 800; letter-spacing: .02em;
+  opacity: 0; pointer-events: none;
+  transform: translate(-50%, 4px) scale(.9);
+  transition: opacity .2s ease, transform .25s var(--ease-bounce);
+}
+.note-saved.is-flash { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
+.note-card--add {
+  background: transparent; border: 1.5px dashed var(--border-strong); border-top: 1.5px dashed var(--border-strong);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 122px; color: var(--text-faint); cursor: pointer; gap: 6px;
+  font-family: var(--font); font-size: 12.5px; font-weight: 700;
+  transition: color .2s, border-color .2s, background .2s, transform .2s var(--ease-bounce);
+}
+.note-card--add:hover { color: var(--blue); border-color: var(--blue); background: rgba(70,200,255,0.05); }
+.note-card--add:active { transform: scale(.97); }
+.note-card--add .plus-icon {
+  width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-soft); font-size: 18px; font-weight: 700;
+}
+
 /* checkbox — крупная, приятно и удобно нажимать */
 .check {
   position: relative; width: 38px; height: 38px; border-radius: 50%; overflow: hidden;

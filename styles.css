@@ -572,12 +572,6 @@ body {
 .notes-layer .note-card.is-invalid-drop { box-shadow: 0 22px 50px rgba(255,80,80,.3), 0 0 0 2px #ff6f6f; }
 .notes-layer .note-card.is-reverting { transition: left .32s var(--ease-bounce), top .32s var(--ease-bounce); }
 .notes-layer .note-card.is-resizing { transition: none; }
-/* в режиме редактирования курсор карточки — текстовый, не "рука", и заметен
-   акцентный контур, чтобы было ясно: сейчас пишем, а не двигаем */
-.notes-layer .note-card.is-editing {
-  cursor: text;
-  box-shadow: 0 0 0 2px var(--note-c), 0 16px 34px color-mix(in srgb, var(--note-c) 20%, transparent);
-}
 @keyframes noteOut {
   from { opacity: 1; transform: scale(1); }
   to { opacity: 0; transform: scale(.9) translateY(-6px); }
@@ -598,15 +592,19 @@ body {
 .note-list-item::before { content: ''; position: absolute; left: 0; top: .58em; width: 5px; height: 5px; border-radius: 50%; background: var(--note-c); }
 .note-list-item:last-child { margin-bottom: 0; }
 
-.note-delete {
-  position: absolute; top: 10px; right: 10px; z-index: 2;
+.note-top-actions {
+  position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 6px;
+  opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.note-card:hover .note-top-actions { opacity: 1; pointer-events: auto; }
+.note-expand, .note-delete {
   width: 24px; height: 24px; border-radius: 50%; border: none;
   background: var(--bg-elevated); color: var(--text-faint);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
-  opacity: 0; transform: scale(.7); pointer-events: none;
-  transition: opacity .2s ease, transform .25s var(--ease-bounce), color .2s, background .2s;
+  transition: color .2s ease, transform .2s var(--ease-bounce), background .2s;
 }
-.note-card:hover .note-delete { opacity: 1; transform: scale(1); pointer-events: auto; }
+.note-expand:hover { color: var(--note-c); background: color-mix(in srgb, var(--note-c) 18%, var(--bg-elevated)); }
+.note-expand:active { transform: scale(.85); }
 .note-delete:hover { color: #ff6f6f; background: rgba(255,111,111,.14); }
 .note-delete:active { transform: scale(.85); }
 
@@ -625,6 +623,21 @@ body {
 }
 .note-font-btn:hover { color: var(--note-c); background: color-mix(in srgb, var(--note-c) 18%, var(--bg-elevated)); }
 .note-font-btn:active { transform: scale(.85); }
+
+/* ---------------------------------- Редактор заметки (модалка) ---------------------------------- */
+
+.note-modal { width: min(760px, 100%); max-height: min(88vh, 820px); }
+.note-modal-font-label { font-size: 11px; font-weight: 800; }
+.note-modal-body { flex: 1; display: flex; padding: 22px 26px 26px; overflow: hidden; }
+.note-modal-text {
+  flex: 1; width: 100%; outline: none; overflow-y: auto;
+  font-family: var(--font); font-size: 17px; font-weight: 500; line-height: 1.65;
+  color: var(--text); white-space: pre-wrap; word-wrap: break-word;
+}
+.note-modal-text:empty:before { content: attr(data-placeholder); color: var(--text-faint); pointer-events: none; }
+.note-modal-text .note-heading { font-size: 1.25em; margin-bottom: .6em; }
+.note-modal-text .note-list-item { font-size: 1em; margin-bottom: .5em; padding-left: 20px; }
+.note-modal-text .note-list-item::before { width: 6px; height: 6px; top: .62em; }
 
 /* плашка "сохранено" всплывает над карточкой и гаснет */
 .note-saved {

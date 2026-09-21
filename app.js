@@ -557,12 +557,13 @@
 
   // ------------------------------------------------------------------ заметки
   // На ПК заметки — свободно перетаскиваемые карточки прямо на холсте, тащить
-  // можно взявшись за любое место карточки (кроме крестика/ручек размера) —
-  // редактирование текста включается двойным кликом, чтобы одиночный клик+
-  // перетаскивание не превращался в случайный ввод текста. Нельзя бросить
-  // заметку поверх карточки ролика — проверяем пересечение и откатываем,
-  // если не влезло. На телефоне (без панорамирования) — простым списком
-  // внизу, там текст всегда сразу редактируемый, как обычное поле.
+  // можно взявшись за любое место карточки (кроме кнопок/ручек размера).
+  // Сам текст на холсте — только превью (не редактируется напрямую, чтобы
+  // клик всегда однозначно означал "тащить"); полноценное редактирование —
+  // в отдельном большом окне (кнопка ⤢ или двойной клик по заметке).
+  // Нельзя бросить заметку поверх карточки ролика — проверяем пересечение
+  // и откатываем, если не влезло. На телефоне (без панорамирования) —
+  // простым списком внизу, там текст всегда сразу редактируется на месте.
 
   const notesLayer = document.getElementById('notesLayer');
   const notesGrid = document.getElementById('notesGrid');
@@ -594,15 +595,20 @@
     const resizeHtml = mobile ? '' : RESIZE_CORNERS.map((c) => `<span class="note-resize-handle ${c}" data-resize="${c}"></span>`).join('');
     return `
       <article class="note-card${isFirstNotesRender ? ' note-enter' : ''}" data-id="${n.id}" style="${styleParts.join(';')}">
-        <button class="note-delete" data-action="delete-note" title="Удалить заметку">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
-        </button>
+        <div class="note-top-actions">
+          <button class="note-expand" data-action="expand-note" title="Открыть на весь экран">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 4H4V9M15 4H20V9M9 20H4V15M15 20H20V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="note-delete" data-action="delete-note" title="Удалить заметку">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+          </button>
+        </div>
         <div class="note-font-controls">
           <button class="note-font-btn" data-action="font-dec" title="Мельче текст">A−</button>
           <button class="note-font-btn" data-action="font-inc" title="Крупнее текст">A+</button>
         </div>
         <span class="note-saved" data-role="saved">✓ сохранено</span>
-        <div class="note-text" data-role="text" contenteditable="${mobile ? 'true' : 'false'}" data-placeholder="Заметка — двойной клик, чтобы писать"${textStyle}>${noteBodyHtml(n)}</div>
+        <div class="note-text" data-role="text" contenteditable="${mobile ? 'true' : 'false'}" data-placeholder="Заметка — двойной клик или ⤢, чтобы писать"${textStyle}>${noteBodyHtml(n)}</div>
         ${resizeHtml}
       </article>`;
   }
@@ -666,38 +672,6 @@
     return candidate;
   }
 
-  // ---- вход/выход из режима редактирования (только карточки на холсте —
-  // на телефоне текст всегда редактируемый) ----
-
-  function enterNoteEditMode(card) {
-    const textEl = card.querySelector('.note-text');
-    if (!textEl || textEl.isContentEditable) return;
-    textEl.setAttribute('contenteditable', 'true');
-    card.classList.add('is-editing');
-    textEl.focus();
-    // сразу выделяем весь текст — удобно перепечатать или вставить поверх,
-    // не выделяя руками
-    const range = document.createRange();
-    range.selectNodeContents(textEl);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-  }
-  function exitNoteEditMode(card) {
-    const textEl = card.querySelector('.note-text');
-    if (!textEl) return;
-    textEl.setAttribute('contenteditable', 'false');
-    card.classList.remove('is-editing');
-    window.getSelection().removeAllRanges();
-    const id = card.dataset.id;
-    const n = notes.find((x) => x.id === id);
-    if (n) {
-      n.text = textEl.innerHTML;
-      n.rich = true;
-      updateNoteRow(n);
-    }
-  }
-
   function createNewNote(atX, atY) {
     const mobile = isMobileLayout();
     let x = 0, y = 0;
@@ -717,13 +691,83 @@
     insertNoteRow(n);
     AudioFX.add();
     renderNotes();
-    const container = mobile ? notesGrid : notesLayer;
-    const card = container.querySelector(`.note-card[data-id="${n.id}"]`);
-    if (!card) return;
-    if (mobile) { const el = card.querySelector('.note-text'); if (el) el.focus(); }
-    else enterNoteEditMode(card);
+    if (mobile) {
+      const card = notesGrid.querySelector(`.note-card[data-id="${n.id}"]`);
+      const el = card && card.querySelector('.note-text');
+      if (el) el.focus();
+    } else {
+      openNoteEditor(n.id);
+    }
   }
   document.getElementById('addNoteBtn').addEventListener('click', () => createNewNote());
+
+  // ---- полноценный редактор заметки (модалка) — открывается по кнопке
+  // расширения или двойному клику на заметке на холсте; на телефоне текст
+  // и так сразу редактируется прямо в карточке, но модалка тоже доступна,
+  // если хочется больше места ----
+
+  const noteModalBackdrop = document.getElementById('noteModalBackdrop');
+  const noteModalText = document.getElementById('noteModalText');
+  let openNoteId = null;
+
+  function openNoteEditor(id) {
+    const n = notes.find((x) => x.id === id);
+    if (!n) return;
+    openNoteId = id;
+    noteModalText.innerHTML = noteBodyHtml(n);
+    noteModalText.style.fontSize = (n.fontSize || 17) + 'px';
+    noteModalBackdrop.classList.add('is-open');
+    AudioFX.open();
+    setTimeout(() => {
+      noteModalText.focus();
+      const range = document.createRange();
+      range.selectNodeContents(noteModalText);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }, 50);
+  }
+  function saveNoteEditorContent() {
+    if (!openNoteId) return;
+    const n = notes.find((x) => x.id === openNoteId);
+    if (!n) return;
+    n.text = noteModalText.innerHTML;
+    n.rich = true;
+    updateNoteRow(n);
+    renderNotes();
+  }
+  function closeNoteEditor() {
+    if (!openNoteId) return;
+    saveNoteEditorContent();
+    noteModalBackdrop.classList.remove('is-open');
+    AudioFX.close();
+    openNoteId = null;
+  }
+  document.getElementById('noteModalClose').addEventListener('click', closeNoteEditor);
+  noteModalBackdrop.addEventListener('click', (e) => { if (e.target === noteModalBackdrop) closeNoteEditor(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && noteModalBackdrop.classList.contains('is-open')) closeNoteEditor();
+  });
+
+  const saveNoteEditorDebounced = debounce(saveNoteEditorContent, 500);
+  noteModalText.addEventListener('input', saveNoteEditorDebounced);
+  noteModalText.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const raw = (e.clipboardData || window.clipboardData).getData('text/plain');
+    document.execCommand('insertHTML', false, formatPastedNoteText(raw));
+  });
+
+  function bumpNoteFontSize(dir) {
+    if (!openNoteId) return;
+    const n = notes.find((x) => x.id === openNoteId);
+    if (!n) return;
+    n.fontSize = Math.max(11, (n.fontSize || 17) + dir * 1.5);
+    noteModalText.style.fontSize = n.fontSize + 'px';
+    updateNoteRow(n);
+  }
+  document.getElementById('noteModalFontInc').addEventListener('click', () => { bumpNoteFontSize(1); AudioFX.click(); });
+  document.getElementById('noteModalFontDec').addEventListener('click', () => { bumpNoteFontSize(-1); AudioFX.click(); });
 
   // двойной клик по пустому месту холста — заметка появляется прямо там,
   // без лишнего шага "создать и потом тащить куда нужно"
@@ -777,24 +821,23 @@
       document.execCommand('insertHTML', false, html);
     });
 
-    // клик выходит из режима редактирования, если кликнули мимо текста
-    // (мимо самой заметки блюр контейнера сработает сам собой)
-    container.addEventListener('focusout', (e) => {
-      const el = e.target.closest('.note-text');
-      if (!el || el.isContentEditable === false) return;
-      const card = el.closest('.note-card');
-      if (card && !isMobileLayout()) exitNoteEditMode(card);
-    });
-
+    // двойной клик по заметке на холсте сразу открывает полноценный редактор
+    // (на телефоне текст и так редактируется прямо в карточке)
     container.addEventListener('dblclick', (e) => {
       if (isMobileLayout()) return;
-      if (e.target.closest('.note-delete') || e.target.closest('.note-resize-handle')) return;
+      if (e.target.closest('.note-top-actions') || e.target.closest('.note-font-controls') || e.target.closest('.note-resize-handle')) return;
       const card = e.target.closest('.note-card');
-      if (card) enterNoteEditMode(card);
+      if (card) openNoteEditor(card.dataset.id);
     });
 
     container.addEventListener('click', async (e) => {
       if (e.target.closest('[data-action="add-note-tile"]')) { createNewNote(); return; }
+
+      if (e.target.closest('[data-action="expand-note"]')) {
+        const card = e.target.closest('.note-card');
+        if (card) openNoteEditor(card.dataset.id);
+        return;
+      }
 
       const fontBtn = e.target.closest('[data-action="font-inc"], [data-action="font-dec"]');
       if (fontBtn) {
@@ -805,7 +848,7 @@
         if (!n) return;
         const current = n.fontSize || 14.5;
         const dir = fontBtn.dataset.action === 'font-inc' ? 1 : -1;
-        n.fontSize = Math.max(11, Math.min(28, current + dir * 1.5));
+        n.fontSize = Math.max(10, current + dir * 1.5);
         textEl.style.fontSize = n.fontSize + 'px';
         updateNoteRow(n);
         AudioFX.click();
@@ -840,7 +883,7 @@
 
   notesLayer.addEventListener('pointerdown', (e) => {
     if (isMobileLayout()) return;
-    if (e.target.closest('.note-delete') || e.target.closest('.note-font-btn')) return;
+    if (e.target.closest('.note-top-actions') || e.target.closest('.note-font-btn')) return;
 
     const rHandle = e.target.closest('.note-resize-handle');
     if (rHandle) {

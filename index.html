@@ -194,6 +194,26 @@
       <div class="canvas-inner" id="canvasInner">
         <div class="canvas-dots" aria-hidden="true"></div>
 
+        <section class="zone zone-current">
+          <div class="zone-head">
+            <h2 class="zone-title">В процессе</h2>
+            <span class="zone-count" id="currentCount">0</span>
+            <div class="custom-select zone-sort" id="currentSortWrap">
+              <button type="button" class="custom-select-trigger custom-select-trigger--sort" id="currentSortTrigger">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 8L6 20M6 8L3 11M6 8L9 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 16L18 4M18 16L15 13M18 16L21 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span id="currentSortLabel">Новые сначала</span>
+              </button>
+              <div class="custom-select-list" id="currentSortList"></div>
+            </div>
+          </div>
+          <div class="cards-grid" id="currentGrid"></div>
+          <p class="empty-state" id="currentEmpty" hidden>Пока ничего не в работе прямо сейчас</p>
+        </section>
+
+        <div class="zone-divider">
+          <span>◷ то, чем сейчас реально занимаешься — выделяется сверху</span>
+        </div>
+
         <section class="zone zone-active">
           <div class="zone-head">
             <h2 class="zone-title">В работе</h2>

@@ -466,6 +466,18 @@ body {
 .card.is-done { opacity: .82; }
 .card.is-done:hover { opacity: 1; }
 
+/* карточка «в процессе» — мягко пульсирующее янтарное свечение, чтобы
+   сразу было видно, над чем реально идёт работа прямо сейчас */
+.card.is-current {
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--border-strong));
+  animation: currentPulse 2.6s ease-in-out infinite;
+}
+.card.is-current:hover { animation-play-state: paused; }
+@keyframes currentPulse {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 35%, transparent), 0 8px 24px color-mix(in srgb, var(--amber) 14%, transparent); }
+  50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 60%, transparent), 0 10px 30px color-mix(in srgb, var(--amber) 26%, transparent); }
+}
+
 .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
 .card-top-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .card-date { font-size: 10.5px; color: var(--text-faint); font-weight: 600; white-space: nowrap; cursor: default; }
@@ -482,6 +494,16 @@ body {
 .card:hover .card-delete { opacity: 1; transform: scale(1) translateY(0); pointer-events: auto; }
 .card-delete:hover { color: #ff6f6f; border-color: rgba(255,111,111,.4); background: rgba(255,111,111,.1); }
 .card-delete:active { transform: scale(.88); }
+
+/* «сейчас работаю над этим» — переключатель между В работе и В процессе */
+.card-process {
+  width: 30px; height: 30px; border-radius: 50%; border: 1.6px solid var(--border-strong); flex-shrink: 0;
+  background: var(--bg-soft); color: var(--text-faint); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: border-color .2s, background .2s, color .2s, transform .25s var(--ease-bounce);
+}
+.card-process:hover { border-color: var(--amber); color: var(--amber); transform: scale(1.08) rotate(-4deg); }
+.card-process:active { transform: scale(.9); }
+.card-process.is-active { background: var(--amber); border-color: transparent; color: #06070a; }
 
 .badge {
   font-size: 10.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
@@ -587,6 +609,22 @@ body {
 .note-card:hover .note-delete { opacity: 1; transform: scale(1); pointer-events: auto; }
 .note-delete:hover { color: #ff6f6f; background: rgba(255,111,111,.14); }
 .note-delete:active { transform: scale(.85); }
+
+/* размер текста внутри заметки — отдельно от размера самой карточки */
+.note-font-controls {
+  position: absolute; top: 10px; left: 10px; z-index: 2; display: flex; gap: 4px;
+  opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.note-card:hover .note-font-controls { opacity: 1; pointer-events: auto; }
+.note-font-btn {
+  width: 22px; height: 22px; border-radius: 50%; border: none;
+  background: var(--bg-elevated); color: var(--text-faint);
+  font-family: var(--font); font-size: 10px; font-weight: 800; line-height: 1;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: color .2s, background .2s, transform .2s var(--ease-bounce);
+}
+.note-font-btn:hover { color: var(--note-c); background: color-mix(in srgb, var(--note-c) 18%, var(--bg-elevated)); }
+.note-font-btn:active { transform: scale(.85); }
 
 /* плашка "сохранено" всплывает над карточкой и гаснет */
 .note-saved {

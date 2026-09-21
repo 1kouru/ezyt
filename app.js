@@ -39,6 +39,7 @@
   let groups = [];
   let currentGroupId = 'all';
   let currentSearch = '';
+  let currentSort = 'new';
   let activeSort = 'new';
   let doneSort = 'new';
   let openVideoId = null;
@@ -214,7 +215,7 @@
       setActiveWorkspace(id);
       currentGroupId = 'all';
       currentSearch = '';
-      activeSort = 'new'; doneSort = 'new';
+      currentSort = 'new'; activeSort = 'new'; doneSort = 'new';
       searchInputEl.value = '';
       searchClearBtn.hidden = true;
       isFirstRender = true;
@@ -240,7 +241,7 @@
     return Object.assign({ id: row.id, groupId: row.group_id, done: row.done, createdAt: new Date(row.created_at).getTime() }, row.data);
   }
   function videoDataPart(v) {
-    return { titleDe: v.titleDe, titleRu: v.titleRu, summaryRu: v.summaryRu, thumbnailPrompt: v.thumbnailPrompt, tags: v.tags, description: v.description, script: v.script };
+    return { titleDe: v.titleDe, titleRu: v.titleRu, summaryRu: v.summaryRu, thumbnailPrompt: v.thumbnailPrompt, tags: v.tags, description: v.description, script: v.script, inProcess: !!v.inProcess };
   }
 
   async function loadVideos() {
@@ -288,7 +289,7 @@
     notes = (data || []).map(rowToNote);
   }
   function noteDataPart(n) {
-    return { text: n.text, rich: !!n.rich, color: n.color, x: n.x, y: n.y, w: n.w, h: n.h };
+    return { text: n.text, rich: !!n.rich, color: n.color, x: n.x, y: n.y, w: n.w, h: n.h, fontSize: n.fontSize };
   }
   async function insertNoteRow(n) {
     const user = Auth.currentUser();
@@ -473,10 +474,13 @@
 
   // ------------------------------------------------------------------ рендер карточек
 
+  const currentGrid = document.getElementById('currentGrid');
   const activeGrid = document.getElementById('activeGrid');
   const doneGrid = document.getElementById('doneGrid');
+  const currentEmpty = document.getElementById('currentEmpty');
   const activeEmpty = document.getElementById('activeEmpty');
   const doneEmpty = document.getElementById('doneEmpty');
+  const currentCountEl = document.getElementById('currentCount');
   const activeCountEl = document.getElementById('activeCount');
   const doneCountEl = document.getElementById('doneCount');
   const statsBar = document.getElementById('statsBar');
@@ -485,8 +489,12 @@
     const g = groupById(v.groupId) || groups[0] || { name: '—', color: 'blue' };
     const styleAttr = enterDelay != null ? `${grpStyle(g)};animation-delay:${enterDelay}ms` : grpStyle(g);
     // заголовок на карточке — русский перевод крупным текстом, оригинал — мелкой подписью
+    const processBtn = v.done ? '' : `
+            <button class="card-process${v.inProcess ? ' is-active' : ''}" data-action="toggle-process" title="${v.inProcess ? 'Убрать из «В процессе»' : 'Сейчас работаю над этим'}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M13 3L4 14H11L10 21L20 9H13L13 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" fill="${v.inProcess ? 'currentColor' : 'none'}"/></svg>
+            </button>`;
     return `
-      <article class="card${isFirstRender ? ' card-enter' : ''}${v.done ? ' is-done' : ''}" data-id="${v.id}" style="${styleAttr}">
+      <article class="card${isFirstRender ? ' card-enter' : ''}${v.done ? ' is-done' : ''}${v.inProcess && !v.done ? ' is-current' : ''}" data-id="${v.id}" style="${styleAttr}">
         <div class="card-top">
           <div class="card-top-left">
             <span class="badge"><span class="grp-dot"></span>${escapeHtml(g.name)}</span>
@@ -496,6 +504,7 @@
             <button class="card-delete" data-action="delete-card" title="Удалить ролик">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 7H19M9 7V5C9 4.4 9.4 4 10 4H14C14.6 4 15 4.4 15 5V7M7 7L8 20C8 20.6 8.4 21 9 21H15C15.6 21 16 20.6 16 20L17 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
+            ${processBtn}
             <span class="check" data-action="toggle-done" title="Отметить выполненным">
               <svg viewBox="0 0 24 24" width="13" height="13"><path d="M4 12.5L9.5 18L20 6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/></svg>
             </span>
@@ -510,15 +519,19 @@
   }
 
   function render() {
-    const active = sortVideos(videos.filter((v) => !v.done && matchesFilter(v)), activeSort);
+    const current = sortVideos(videos.filter((v) => !v.done && v.inProcess && matchesFilter(v)), currentSort);
+    const active = sortVideos(videos.filter((v) => !v.done && !v.inProcess && matchesFilter(v)), activeSort);
     const done = sortVideos(videos.filter((v) => v.done && matchesFilter(v)), doneSort);
 
+    currentGrid.innerHTML = current.map((v, i) => cardHtml(v, isFirstRender ? i * 45 : null)).join('');
     activeGrid.innerHTML = active.map((v, i) => cardHtml(v, isFirstRender ? i * 45 : null)).join('');
     doneGrid.innerHTML = done.map((v, i) => cardHtml(v, isFirstRender ? i * 45 : null)).join('');
 
+    currentEmpty.hidden = current.length !== 0;
     activeEmpty.hidden = active.length !== 0;
     doneEmpty.hidden = done.length !== 0;
 
+    currentCountEl.textContent = current.length;
     activeCountEl.textContent = active.length;
     doneCountEl.textContent = done.length;
 
@@ -574,13 +587,20 @@
       if (n.w) styleParts.push(`width:${Math.round(n.w)}px`);
     }
     if (enterDelay != null) styleParts.push(`animation-delay:${enterDelay}ms`);
-    const textStyle = (!mobile && n.h) ? ` style="min-height:${Math.round(n.h)}px"` : '';
+    const textStyleParts = [];
+    if (!mobile && n.h) textStyleParts.push(`min-height:${Math.round(n.h)}px`);
+    if (n.fontSize) textStyleParts.push(`font-size:${n.fontSize}px`);
+    const textStyle = textStyleParts.length ? ` style="${textStyleParts.join(';')}"` : '';
     const resizeHtml = mobile ? '' : RESIZE_CORNERS.map((c) => `<span class="note-resize-handle ${c}" data-resize="${c}"></span>`).join('');
     return `
       <article class="note-card${isFirstNotesRender ? ' note-enter' : ''}" data-id="${n.id}" style="${styleParts.join(';')}">
         <button class="note-delete" data-action="delete-note" title="Удалить заметку">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 5L19 19M19 5L5 19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
         </button>
+        <div class="note-font-controls">
+          <button class="note-font-btn" data-action="font-dec" title="Мельче текст">A−</button>
+          <button class="note-font-btn" data-action="font-inc" title="Крупнее текст">A+</button>
+        </div>
         <span class="note-saved" data-role="saved">✓ сохранено</span>
         <div class="note-text" data-role="text" contenteditable="${mobile ? 'true' : 'false'}" data-placeholder="Заметка — двойной клик, чтобы писать"${textStyle}>${noteBodyHtml(n)}</div>
         ${resizeHtml}
@@ -775,6 +795,23 @@
 
     container.addEventListener('click', async (e) => {
       if (e.target.closest('[data-action="add-note-tile"]')) { createNewNote(); return; }
+
+      const fontBtn = e.target.closest('[data-action="font-inc"], [data-action="font-dec"]');
+      if (fontBtn) {
+        const card = fontBtn.closest('.note-card');
+        const textEl = card.querySelector('.note-text');
+        const id = card.dataset.id;
+        const n = notes.find((x) => x.id === id);
+        if (!n) return;
+        const current = n.fontSize || 14.5;
+        const dir = fontBtn.dataset.action === 'font-inc' ? 1 : -1;
+        n.fontSize = Math.max(11, Math.min(28, current + dir * 1.5));
+        textEl.style.fontSize = n.fontSize + 'px';
+        updateNoteRow(n);
+        AudioFX.click();
+        return;
+      }
+
       const delBtn = e.target.closest('[data-action="delete-note"]');
       if (!delBtn) return;
       const card = delBtn.closest('.note-card');
@@ -803,7 +840,7 @@
 
   notesLayer.addEventListener('pointerdown', (e) => {
     if (isMobileLayout()) return;
-    if (e.target.closest('.note-delete')) return;
+    if (e.target.closest('.note-delete') || e.target.closest('.note-font-btn')) return;
 
     const rHandle = e.target.closest('.note-resize-handle');
     if (rHandle) {
@@ -940,6 +977,7 @@
     const id = card.dataset.id;
 
     if (e.target.closest('.check')) { e.stopPropagation(); toggleDone(id, card); return; }
+    if (e.target.closest('.card-process')) { e.stopPropagation(); toggleInProcess(id, card); return; }
     if (e.target.closest('.card-delete')) { e.stopPropagation(); quickDelete(id); return; }
     openModal(id);
   });
@@ -956,7 +994,33 @@
     render();
   }
 
-  // ------------------------------------------------------------------ toggle done + FLIP-анимация + confetti
+  // ------------------------------------------------------------------ toggle done/process + FLIP-анимация + confetti
+
+  function flipCardTo(id, oldRect) {
+    const newCardEl = document.querySelector(`.card[data-id="${id}"]`);
+    if (!newCardEl) return;
+    const newRect = newCardEl.getBoundingClientRect();
+    const dx = oldRect.left - newRect.left;
+    const dy = oldRect.top - newRect.top;
+    newCardEl.style.animation = 'none';
+    newCardEl.style.transition = 'none';
+    newCardEl.style.transform = `translate(${dx}px, ${dy}px) scale(1.04)`;
+    newCardEl.style.opacity = '0.55';
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        newCardEl.style.transition = 'transform .55s var(--ease-bounce), opacity .4s ease';
+        newCardEl.style.transform = 'translate(0,0) scale(1)';
+        newCardEl.style.opacity = '1';
+        newCardEl.classList.add('card--completing');
+        setTimeout(() => {
+          newCardEl.style.transition = '';
+          newCardEl.style.transform = '';
+          newCardEl.style.animation = '';
+          newCardEl.classList.remove('card--completing');
+        }, 620);
+      });
+    });
+  }
 
   function toggleDone(id, cardEl) {
     const video = videos.find((v) => v.id === id);
@@ -973,33 +1037,24 @@
     else { AudioFX.undo(); }
 
     render();
-
-    const newCardEl = document.querySelector(`.card[data-id="${id}"]`);
-    if (newCardEl) {
-      const newRect = newCardEl.getBoundingClientRect();
-      const dx = oldRect.left - newRect.left;
-      const dy = oldRect.top - newRect.top;
-      newCardEl.style.animation = 'none';
-      newCardEl.style.transition = 'none';
-      newCardEl.style.transform = `translate(${dx}px, ${dy}px) scale(1.04)`;
-      newCardEl.style.opacity = '0.55';
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          newCardEl.style.transition = 'transform .55s var(--ease-bounce), opacity .4s ease';
-          newCardEl.style.transform = 'translate(0,0) scale(1)';
-          newCardEl.style.opacity = '1';
-          newCardEl.classList.add('card--completing');
-          setTimeout(() => {
-            newCardEl.style.transition = '';
-            newCardEl.style.transform = '';
-            newCardEl.style.animation = '';
-            newCardEl.classList.remove('card--completing');
-          }, 620);
-        });
-      });
-    }
+    flipCardTo(id, oldRect);
 
     if (video.done) showToast('Готово! 🎉 Ролик уехал вниз');
+  }
+
+  function toggleInProcess(id, cardEl) {
+    const video = videos.find((v) => v.id === id);
+    if (!video || video.done) return;
+
+    const oldRect = cardEl.getBoundingClientRect();
+    video.inProcess = !video.inProcess;
+    updateVideoRow(video);
+    AudioFX.click();
+
+    render();
+    flipCardTo(id, oldRect);
+
+    if (video.inProcess) showToast('Отправлено в «В процессе»');
   }
 
   function spawnConfetti(x, y) {
@@ -1203,7 +1258,7 @@
 
   function closeCustomSelect(wrap) { if (wrap) wrap.classList.remove('is-open'); }
   function closeAllCustomSelects(except) {
-    [fieldGroupWrap, activeSortWrap, doneSortWrap, segmentFilterWrap].forEach((w) => { if (w && w !== except) closeCustomSelect(w); });
+    [fieldGroupWrap, currentSortWrap, activeSortWrap, doneSortWrap, segmentFilterWrap].forEach((w) => { if (w && w !== except) closeCustomSelect(w); });
   }
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.custom-select')) closeAllCustomSelects();
@@ -1282,6 +1337,7 @@
     return wrap;
   }
 
+  const currentSortWrap = wireZoneSort('current', () => currentSort, (v) => { currentSort = v; });
   const activeSortWrap = wireZoneSort('active', () => activeSort, (v) => { activeSort = v; });
   const doneSortWrap = wireZoneSort('done', () => doneSort, (v) => { doneSort = v; });
 

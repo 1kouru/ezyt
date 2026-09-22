@@ -341,7 +341,20 @@
   }
   confirmOkBtn.addEventListener('click', () => { AudioFX.delete(); closeConfirm(true); });
   confirmCancelBtn.addEventListener('click', () => { AudioFX.close(); closeConfirm(false); });
-  confirmBackdrop.addEventListener('click', (e) => { if (e.target === confirmBackdrop) closeConfirm(false); });
+  wireBackdropClose(confirmBackdrop, () => closeConfirm(false));
+
+  // Закрытие модалки кликом по тёмному фону вокруг неё — но только если
+  // клик реально НАЧАЛСЯ на фоне. Иначе выделение текста внутри модалки,
+  // если палец/мышь уезжает за край плашки при отпускании, засчитывалось
+  // как клик по фону и модалка неожиданно закрывалась.
+  function wireBackdropClose(backdrop, closeFn) {
+    let downOnBackdrop = false;
+    backdrop.addEventListener('pointerdown', (e) => { downOnBackdrop = (e.target === backdrop); });
+    backdrop.addEventListener('click', (e) => {
+      if (downOnBackdrop && e.target === backdrop) closeFn();
+      downOnBackdrop = false;
+    });
+  }
 
   // ------------------------------------------------------------------ утилиты
 
@@ -364,7 +377,7 @@
   // они уже заполнены, иначе на их месте остаются сами метки как есть
   function thumbnailPromptTemplateFor(titleDe) {
     const title = (titleDe || '').trim() || '[название]';
-    return `по теме ${title} сделай превью отражающее суть, но при этом без текста, и используй жёлтую стрелку и красный круг на персонажах. сделай чтобы людям хотелось нажать`;
+    return `по теме ${title} сделай превью отражающее суть, но при этом без текста, и используй одну жёлтую стрелку и один красный круг в разных местах, чтобы людям хотелось нажать`;
   }
 
   function scriptPromptFor(titleDe, summaryRu) {
@@ -786,7 +799,7 @@
     openNoteId = null;
   }
   document.getElementById('noteModalClose').addEventListener('click', closeNoteEditor);
-  noteModalBackdrop.addEventListener('click', (e) => { if (e.target === noteModalBackdrop) closeNoteEditor(); });
+  wireBackdropClose(noteModalBackdrop, closeNoteEditor);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && noteModalBackdrop.classList.contains('is-open')) closeNoteEditor();
   });
@@ -1279,7 +1292,7 @@
   document.getElementById('modalClose').addEventListener('click', closeModal);
   // это окно — просто просмотр (не форма с текстовым вводом), поэтому клик
   // мимо плашки закрывает его безопасно, без риска случайно оборвать ввод
-  modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
+  wireBackdropClose(modalBackdrop, closeModal);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closePanel(); closeGroupsModal(); toggleHelp(false);
@@ -1846,7 +1859,7 @@
 
   document.getElementById('manageGroupsBtn').addEventListener('click', () => openGroupsModal());
   document.getElementById('groupsModalClose').addEventListener('click', closeGroupsModal);
-  groupsModalBackdrop.addEventListener('click', (e) => { if (e.target === groupsModalBackdrop) closeGroupsModal(); });
+  wireBackdropClose(groupsModalBackdrop, closeGroupsModal);
 
   // ------------------------------------------------------------------ аккаунт
 
@@ -1888,7 +1901,7 @@
   }
   document.getElementById('settingsBtn').addEventListener('click', openSettings);
   document.getElementById('settingsClose').addEventListener('click', closeSettings);
-  settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
+  wireBackdropClose(settingsBackdrop, closeSettings);
 
   document.getElementById('formUsername').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2095,7 +2108,7 @@
     AudioFX.close();
   }
   document.getElementById('folderModalClose').addEventListener('click', closeFolderModal);
-  folderModalBackdrop.addEventListener('click', (e) => { if (e.target === folderModalBackdrop) closeFolderModal(); });
+  wireBackdropClose(folderModalBackdrop, closeFolderModal);
 
   folderSaveBtn.addEventListener('click', () => {
     const name = folderNameInput.value.trim();

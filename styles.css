@@ -527,7 +527,13 @@ body {
 }
 
 .card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 8px; }
-.card-meta { font-size: 11px; color: var(--text-faint); font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.card-meta { font-size: 11px; color: var(--text-faint); font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.text-status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.text-status-dot.is-ready { background: var(--green); box-shadow: 0 0 5px color-mix(in srgb, var(--green) 65%, transparent); }
+.text-status-dot.is-empty { background: var(--text-dim); }
+/* "текст ещё не написан" — специально ярче/белее обычной приглушённой
+   мета-строки, чтобы такие карточки сразу бросались в глаза в общей сетке */
+.card-meta.is-todo { color: var(--text); font-weight: 700; }
 
 /* ---------------------------------- Заметки ---------------------------------- */
 
@@ -592,21 +598,45 @@ body {
 .note-list-item::before { content: ''; position: absolute; left: 0; top: .58em; width: 5px; height: 5px; border-radius: 50%; background: var(--note-c); }
 .note-list-item:last-child { margin-bottom: 0; }
 
+/* превью заметки (не в режиме редактирования) — клик по заголовку/строке
+   списка копирует именно эту строку, а не всю заметку */
+.notes-layer .note-text[contenteditable="false"] .note-heading,
+.notes-layer .note-text[contenteditable="false"] .note-list-item {
+  cursor: pointer; border-radius: 5px; transition: background .15s ease;
+  margin-left: -3px; margin-right: -3px; padding-right: 3px;
+}
+.notes-layer .note-text[contenteditable="false"] .note-heading { padding-left: 3px; }
+.notes-layer .note-text[contenteditable="false"] .note-list-item { padding-left: 18px; }
+.notes-layer .note-text[contenteditable="false"] .note-heading:hover,
+.notes-layer .note-text[contenteditable="false"] .note-list-item:hover {
+  background: color-mix(in srgb, var(--note-c) 14%, transparent);
+}
+.note-heading.is-copy-flash, .note-list-item.is-copy-flash {
+  background: color-mix(in srgb, var(--note-c) 32%, transparent) !important;
+}
+
 .note-top-actions {
   position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 6px;
   opacity: 0; pointer-events: none; transition: opacity .2s ease;
 }
 .note-card:hover .note-top-actions { opacity: 1; pointer-events: auto; }
-.note-expand, .note-delete {
+.note-expand, .note-delete, .note-fit {
   width: 24px; height: 24px; border-radius: 50%; border: none;
   background: var(--bg-elevated); color: var(--text-faint);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   transition: color .2s ease, transform .2s var(--ease-bounce), background .2s;
 }
-.note-expand:hover { color: var(--note-c); background: color-mix(in srgb, var(--note-c) 18%, var(--bg-elevated)); }
-.note-expand:active { transform: scale(.85); }
+.note-expand:hover, .note-fit:hover { color: var(--note-c); background: color-mix(in srgb, var(--note-c) 18%, var(--bg-elevated)); }
+.note-expand:active, .note-fit:active { transform: scale(.85); }
 .note-delete:hover { color: #ff6f6f; background: rgba(255,111,111,.14); }
 .note-delete:active { transform: scale(.85); }
+
+/* короткая вспышка при "подгонке" высоты под текст — заметно, что сработало */
+@keyframes noteFitPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--note-c) 55%, transparent); }
+  100% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--note-c) 0%, transparent); }
+}
+.note-card.note-fit-pulse { animation: noteFitPulse .35s ease-out; }
 
 /* размер текста внутри заметки — отдельно от размера самой карточки */
 .note-font-controls {
@@ -807,6 +837,8 @@ body {
 .script-meta h3 { margin: 0; }
 .script-est { font-size: 11.5px; color: var(--text-faint); font-weight: 600; }
 .script-actions { display: flex; gap: 8px; }
+.script-secondary-actions { display: flex; gap: 8px; margin: 10px 0 2px; flex-wrap: wrap; }
+.script-prompt-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
 .fallback-link { display: inline-block; font-size: 11px; color: var(--text-faint); margin: 4px 0 10px; text-decoration: none; }
 .fallback-link:hover { color: var(--blue); }
 .script-text {

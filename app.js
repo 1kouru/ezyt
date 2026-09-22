@@ -360,6 +360,30 @@
     return Math.max(1, Math.round(wordCount(text) / 300));
   }
 
+  // промт для генерации текста ролика — название и суть подставляются, если
+  // они уже заполнены, иначе на их месте остаются сами метки как есть
+  function scriptPromptFor(titleDe, summaryRu) {
+    const title = (titleDe || '').trim() || '[название]';
+    const summary = (summaryRu || '').trim() || '[суть]';
+    return `напиши на эту тему\n${title}\n${summary}\n\nтекст, на +- 10.000 слов, важно сделать этот текст без воды, интересным и с сюжетными поворотами, чтобы зрителю хотелось дослушать. текст должен быть на том же языке, что и название`;
+  }
+
+  async function pasteIntoScript(setter) {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      showToast('Браузер не даёт читать буфер обмена — вставь вручную (Ctrl+V)', 'warn');
+      return;
+    }
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) { showToast('В буфере обмена пусто', 'warn'); return; }
+      setter(text);
+      AudioFX.click();
+      showToast('Текст вставлен');
+    } catch (e) {
+      showToast('Не удалось прочитать буфер обмена — вставь вручную (Ctrl+V)', 'warn');
+    }
+  }
+
   function formatDate(ts) {
     try {
       return new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -485,10 +509,17 @@
   const doneCountEl = document.getElementById('doneCount');
   const statsBar = document.getElementById('statsBar');
 
+  const MIN_SCRIPT_WORDS = 100;
+
   function cardHtml(v, enterDelay) {
     const g = groupById(v.groupId) || groups[0] || { name: '—', color: 'blue' };
     const styleAttr = enterDelay != null ? `${grpStyle(g)};animation-delay:${enterDelay}ms` : grpStyle(g);
     // заголовок на карточке — русский перевод крупным текстом, оригинал — мелкой подписью
+    const words = wordCount(v.script);
+    const hasScript = words >= MIN_SCRIPT_WORDS;
+    const metaHtml = hasScript
+      ? `~${estimateMinutes(v.script)} мин · ${words.toLocaleString('ru-RU')} ${pluralRu(words, 'слово', 'слова', 'слов')}`
+      : 'текст ещё не написан';
     const processBtn = v.done ? '' : `
             <button class="card-process${v.inProcess ? ' is-active' : ''}" data-action="toggle-process" title="${v.inProcess ? 'Убрать из «В процессе»' : 'Сейчас работаю над этим'}">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M13 3L4 14H11L10 21L20 9H13L13 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" fill="${v.inProcess ? 'currentColor' : 'none'}"/></svg>
@@ -513,7 +544,7 @@
         <h3 class="card-title-de">${escapeHtml(v.titleRu)}</h3>
         <p class="card-title-ru">${escapeHtml(v.summaryRu || v.titleDe)}</p>
         <div class="card-bottom">
-          <span class="card-meta">~${estimateMinutes(v.script)} мин · ${wordCount(v.script).toLocaleString('ru-RU')} ${pluralRu(wordCount(v.script), 'слово', 'слова', 'слов')}</span>
+          <span class="card-meta${hasScript ? '' : ' is-todo'}"><span class="text-status-dot ${hasScript ? 'is-ready' : 'is-empty'}" title="${hasScript ? 'Текст сценария готов' : 'Текст сценария ещё не написан (меньше 100 слов)'}"></span>${metaHtml}</span>
         </div>
       </article>`;
   }
@@ -593,9 +624,14 @@
     if (n.fontSize) textStyleParts.push(`font-size:${n.fontSize}px`);
     const textStyle = textStyleParts.length ? ` style="${textStyleParts.join(';')}"` : '';
     const resizeHtml = mobile ? '' : RESIZE_CORNERS.map((c) => `<span class="note-resize-handle ${c}" data-resize="${c}"></span>`).join('');
+    const fitBtn = (!mobile && n.h) ? `
+          <button class="note-fit" data-action="fit-note" title="Подогнать высоту под текст">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M7 10L4 7L4 10M4 7H7M17 10L20 7L20 10M20 7H17M7 14L4 17L4 14M4 17H7M17 14L20 17L20 14M20 17H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>` : '';
     return `
       <article class="note-card${isFirstNotesRender ? ' note-enter' : ''}" data-id="${n.id}" style="${styleParts.join(';')}">
         <div class="note-top-actions">
+          ${fitBtn}
           <button class="note-expand" data-action="expand-note" title="Открыть на весь экран">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 4H4V9M15 4H20V9M9 20H4V15M15 20H20V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
@@ -758,16 +794,18 @@
     document.execCommand('insertHTML', false, formatPastedNoteText(raw));
   });
 
-  function bumpNoteFontSize(dir) {
+  document.getElementById('noteModalFontInc').addEventListener('pointerdown', (e) => {
+    e.preventDefault();
     if (!openNoteId) return;
     const n = notes.find((x) => x.id === openNoteId);
-    if (!n) return;
-    n.fontSize = Math.max(11, (n.fontSize || 17) + dir * 1.5);
-    noteModalText.style.fontSize = n.fontSize + 'px';
-    updateNoteRow(n);
-  }
-  document.getElementById('noteModalFontInc').addEventListener('click', () => { bumpNoteFontSize(1); AudioFX.click(); });
-  document.getElementById('noteModalFontDec').addEventListener('click', () => { bumpNoteFontSize(-1); AudioFX.click(); });
+    if (n) startFontRepeat(n, noteModalText, 1);
+  });
+  document.getElementById('noteModalFontDec').addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (!openNoteId) return;
+    const n = notes.find((x) => x.id === openNoteId);
+    if (n) startFontRepeat(n, noteModalText, -1);
+  });
 
   // двойной клик по пустому месту холста — заметка появляется прямо там,
   // без лишнего шага "создать и потом тащить куда нужно"
@@ -790,6 +828,38 @@
     return headingHtml + listHtml;
   }
 
+  // ---- размер шрифта — удержанием кнопки, а не кликом по тысяче раз:
+  // короткое нажатие — один шаг, задержка и дальше саморазгоняющийся повтор ----
+
+  const saveNoteRowDebounced = debounce((n) => updateNoteRow(n), 400);
+  let fontRepeat = null;
+
+  function applyFontStep(n, textEl, dir) {
+    n.fontSize = Math.max(9, (n.fontSize || 14.5) + dir * 2);
+    textEl.style.fontSize = n.fontSize + 'px';
+    saveNoteRowDebounced(n);
+  }
+  function startFontRepeat(n, textEl, dir) {
+    stopFontRepeat();
+    applyFontStep(n, textEl, dir);
+    AudioFX.click();
+    let ticks = 0;
+    fontRepeat = { timeout: setTimeout(function tick() {
+      applyFontStep(n, textEl, dir);
+      ticks += 1;
+      // чем дольше держишь — тем быстрее растёт: приятно долистать до
+      // большого размера, не отпуская кнопку
+      fontRepeat.timeout = setTimeout(tick, Math.max(30, 90 - ticks * 4));
+    }, 380) };
+  }
+  function stopFontRepeat() {
+    if (!fontRepeat) return;
+    clearTimeout(fontRepeat.timeout);
+    fontRepeat = null;
+  }
+  document.addEventListener('pointerup', stopFontRepeat);
+  document.addEventListener('pointercancel', stopFontRepeat);
+
   const saveNoteText = debounce((id, html) => {
     const n = notes.find((x) => x.id === id);
     if (!n) return;
@@ -810,6 +880,17 @@
       if (!el) return;
       const card = el.closest('.note-card');
       saveNoteText(card.dataset.id, el.innerHTML);
+    });
+
+    container.addEventListener('pointerdown', (e) => {
+      const fontBtn = e.target.closest('[data-action="font-inc"], [data-action="font-dec"]');
+      if (!fontBtn) return;
+      e.preventDefault();
+      const card = fontBtn.closest('.note-card');
+      const textEl = card.querySelector('.note-text');
+      const n = notes.find((x) => x.id === card.dataset.id);
+      if (!n) return;
+      startFontRepeat(n, textEl, fontBtn.dataset.action === 'font-inc' ? 1 : -1);
     });
 
     container.addEventListener('paste', (e) => {
@@ -839,18 +920,15 @@
         return;
       }
 
-      const fontBtn = e.target.closest('[data-action="font-inc"], [data-action="font-dec"]');
-      if (fontBtn) {
-        const card = fontBtn.closest('.note-card');
+      if (e.target.closest('[data-action="fit-note"]')) {
+        const card = e.target.closest('.note-card');
         const textEl = card.querySelector('.note-text');
-        const id = card.dataset.id;
-        const n = notes.find((x) => x.id === id);
-        if (!n) return;
-        const current = n.fontSize || 14.5;
-        const dir = fontBtn.dataset.action === 'font-inc' ? 1 : -1;
-        n.fontSize = Math.max(10, current + dir * 1.5);
-        textEl.style.fontSize = n.fontSize + 'px';
-        updateNoteRow(n);
+        const n = notes.find((x) => x.id === card.dataset.id);
+        if (n) { n.h = undefined; updateNoteRow(n); }
+        textEl.style.minHeight = '';
+        card.classList.add('note-fit-pulse');
+        setTimeout(() => card.classList.remove('note-fit-pulse'), 350);
+        renderNotes();
         AudioFX.click();
         return;
       }
@@ -908,11 +986,15 @@
     if (!card) return;
     const textEl = card.querySelector('.note-text');
     if (textEl && textEl.isContentEditable) return; // сейчас пишем текст — не тащим карточку
+    // клик (без протаскивания) по строке заголовка/списка — копирует именно
+    // эту строку, а не всю заметку целиком
+    const copyLineEl = e.target.closest('.note-heading, .note-list-item');
     e.preventDefault();
     e.stopPropagation();
     noteDrag = {
       id: card.dataset.id,
       el: card,
+      copyLineEl,
       offsetX: e.clientX - card.getBoundingClientRect().left,
       offsetY: e.clientY - card.getBoundingClientRect().top,
       startLeft: parseFloat(card.style.left) || 0,
@@ -968,12 +1050,23 @@
     noteResize = null;
   }
 
+  function copyNoteLine(el) {
+    const text = el.textContent.trim();
+    if (!text) return;
+    copyText(text, null, 'Строка скопирована');
+    el.classList.add('is-copy-flash');
+    setTimeout(() => el.classList.remove('is-copy-flash'), 700);
+  }
+
   function endNoteDrag(e) {
-    const { el, id, invalid, moved, startLeft, startTop } = noteDrag;
+    const { el, id, invalid, moved, startLeft, startTop, copyLineEl } = noteDrag;
     el.classList.remove('is-dragging');
     try { el.releasePointerCapture(e.pointerId); } catch (err) {}
     noteDrag = null;
-    if (!moved) return;
+    if (!moved) {
+      if (copyLineEl) copyNoteLine(copyLineEl);
+      return;
+    }
 
     if (invalid) {
       el.classList.add('is-reverting');
@@ -1157,7 +1250,7 @@
     modalThumbPrompt.textContent = v.thumbnailPrompt || '—';
     modalDescription.textContent = v.description || '—';
     modalScript.textContent = v.script || '—';
-    scriptEstimate.textContent = `~${wordCount(v.script).toLocaleString('ru-RU')} ${pluralRu(wordCount(v.script), 'слово', 'слова', 'слов')} · ≈${estimateMinutes(v.script)} мин при обычном темпе`;
+    scriptEstimate.textContent = `~${wordCount(v.script).toLocaleString('ru-RU')} ${pluralRu(wordCount(v.script), 'слово', 'слова', 'слов')}`;
     modalDoneCheckbox.checked = !!v.done;
 
     modalTags.innerHTML = (v.tags || []).map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('');
@@ -1175,11 +1268,16 @@
     AudioFX.close();
   }
 
+  // окно ролика закрывается только по явному нажатию крестика — раньше
+  // случайный клик по тёмному фону или нажатие Escape (например, при выходе
+  // из полноэкранного просмотра видео на обложке) закрывали его незаметно
   document.getElementById('modalClose').addEventListener('click', closeModal);
+  // это окно — просто просмотр (не форма с текстовым вводом), поэтому клик
+  // мимо плашки закрывает его безопасно, без риска случайно оборвать ввод
   modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      closeModal(); closePanel(); closeGroupsModal(); toggleHelp(false);
+      closePanel(); closeGroupsModal(); toggleHelp(false);
       closeAllCustomSelects();
       workspacePinned = false;
       workspacePin.classList.remove('is-active');
@@ -1226,6 +1324,23 @@
 
   document.getElementById('copyScriptBtn').addEventListener('click', (e) => {
     copyText(modalScript.textContent, e.currentTarget);
+  });
+
+  document.getElementById('copyScriptPromptBtn').addEventListener('click', (e) => {
+    const v = videos.find((x) => x.id === openVideoId);
+    if (!v) return;
+    copyText(scriptPromptFor(v.titleDe, v.summaryRu), e.currentTarget, 'Промт скопирован — вставь в чат с ИИ');
+  });
+  document.getElementById('pasteScriptBtn').addEventListener('click', () => {
+    pasteIntoScript((text) => {
+      const v = videos.find((x) => x.id === openVideoId);
+      if (!v) return;
+      v.script = text;
+      updateVideoRow(v);
+      modalScript.textContent = v.script || '—';
+      scriptEstimate.textContent = `~${wordCount(v.script).toLocaleString('ru-RU')} ${pluralRu(wordCount(v.script), 'слово', 'слова', 'слов')}`;
+      render();
+    });
   });
 
   // Резервный способ копирования через скрытое поле ввода — Clipboard API
@@ -1400,6 +1515,13 @@
     script: document.getElementById('fieldScript'),
   };
 
+  document.getElementById('fieldScriptPromptBtn').addEventListener('click', (e) => {
+    copyText(scriptPromptFor(fields.titleDe.value, fields.summaryRu.value), e.currentTarget, 'Промт скопирован — вставь в чат с ИИ');
+  });
+  document.getElementById('fieldScriptPasteBtn').addEventListener('click', () => {
+    pasteIntoScript((text) => { fields.script.value = text; });
+  });
+
   function openPanel(video) {
     populateGroupSelect(video ? video.groupId : (currentGroupId !== 'all' ? currentGroupId : (groups[0] && groups[0].id)));
     if (video) {
@@ -1482,7 +1604,7 @@
   });
   document.getElementById('bulkPasteCancel').addEventListener('click', () => { AudioFX.close(); closeBulkPaste(); });
 
-  const BULK_TEMPLATE = '[группа]\n\n\n[название]\n\n\n[перевод]\n\n\n[суть]\n\n\n[промт для обложки]\n\n\n[теги]\n\n\n[описание]\n\n\n[текст]\n';
+  const BULK_TEMPLATE = 'заполни эту форму, именно как шаблон используй и не меняй его, просто добавь что нужно. в группу укажи main. название на немецком пиши, перевод это перевод названия, суть пиши на русском. описание и теги делай чтобы ютуб принял и продвинул.\nполе текста пока не заполняй\n\n[группа]\n\n\n[название]\n\n\n[перевод]\n\n\n[суть]\n\n\n[промт для обложки]\n\n\n[теги]\n\n\n[описание]\n\n\n[текст]\n\nзаполни для этого названия\n';
   document.getElementById('bulkPasteCopyTemplate').addEventListener('click', (e) => {
     copyText(BULK_TEMPLATE, e.currentTarget);
   });
@@ -1555,7 +1677,8 @@
   });
   document.getElementById('panelClose').addEventListener('click', closePanel);
   document.getElementById('panelCancel').addEventListener('click', closePanel);
-  panelBackdrop.addEventListener('click', (e) => { if (e.target === panelBackdrop) closePanel(); });
+  // панель редактирования закрывается только явной кнопкой — клик по фону
+  // случайно ловил конец выделения/копирования текста внутри формы
 
   videoForm.addEventListener('submit', (e) => {
     e.preventDefault();

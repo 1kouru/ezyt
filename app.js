@@ -380,6 +380,39 @@
     return `по теме ${title} сделай превью отражающее суть, но при этом без текста, и используй одну жёлтую стрелку и один красный круг в разных местах, чтобы людям хотелось нажать`;
   }
 
+  // делит текст на две примерно равные половины строго по границе абзаца
+  // (никогда не разрывая слово/предложение) — чтобы озвучка не ломалась
+  // на середине фразы. Абзац = блок текста между пустыми строками.
+  function splitScriptByParagraph(text) {
+    const paragraphs = (text || '').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+    if (paragraphs.length < 2) return null;
+    const counts = paragraphs.map((p) => wordCount(p));
+    const total = counts.reduce((a, b) => a + b, 0);
+    let bestIdx = 1;
+    let bestDiff = Infinity;
+    let running = 0;
+    for (let i = 0; i < paragraphs.length - 1; i++) {
+      running += counts[i];
+      const diff = Math.abs(running - (total - running));
+      if (diff < bestDiff) { bestDiff = diff; bestIdx = i + 1; }
+    }
+    return [
+      paragraphs.slice(0, bestIdx).join('\n\n'),
+      paragraphs.slice(bestIdx).join('\n\n'),
+    ];
+  }
+
+  function copyScriptPart(partIndex, btn) {
+    const v = videos.find((x) => x.id === openVideoId);
+    if (!v) return;
+    const parts = splitScriptByParagraph(v.script);
+    if (!parts) { showToast('Нужно минимум 2 абзаца (пустая строка между ними), чтобы поделить текст', 'warn'); return; }
+    const part = parts[partIndex];
+    copyText(part, btn, `${partIndex + 1} часть скопирована — ${wordCount(part)} слов`);
+  }
+  document.getElementById('copyScriptPart1Btn').addEventListener('click', (e) => copyScriptPart(0, e.currentTarget));
+  document.getElementById('copyScriptPart2Btn').addEventListener('click', (e) => copyScriptPart(1, e.currentTarget));
+
   function scriptPromptFor(titleDe, summaryRu) {
     const title = (titleDe || '').trim() || '[название]';
     const summary = (summaryRu || '').trim() || '[суть]';

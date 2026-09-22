@@ -241,7 +241,7 @@
     return Object.assign({ id: row.id, groupId: row.group_id, done: row.done, createdAt: new Date(row.created_at).getTime() }, row.data);
   }
   function videoDataPart(v) {
-    return { titleDe: v.titleDe, titleRu: v.titleRu, summaryRu: v.summaryRu, thumbnailPrompt: v.thumbnailPrompt, tags: v.tags, description: v.description, script: v.script, inProcess: !!v.inProcess };
+    return { titleDe: v.titleDe, titleRu: v.titleRu, summaryRu: v.summaryRu, thumbnailPrompt: v.thumbnailPrompt, tags: v.tags, description: v.description, script: v.script, inProcess: !!v.inProcess, doneAt: v.doneAt };
   }
 
   async function loadVideos() {
@@ -262,10 +262,6 @@
   async function updateVideoRow(v) {
     const { error } = await sb.from('videos').update({ group_id: v.groupId, done: !!v.done, data: videoDataPart(v) }).eq('id', v.id);
     if (error) showToast('Не удалось сохранить ролик', 'warn');
-  }
-  async function updateVideoDone(id, done) {
-    const { error } = await sb.from('videos').update({ done }).eq('id', id);
-    if (error) showToast('Не удалось сохранить статус ролика', 'warn');
   }
   async function deleteVideoRow(id) {
     const { error } = await sb.from('videos').delete().eq('id', id);
@@ -479,17 +475,23 @@
     return true;
   }
 
-  function sortVideos(list, sortId) {
+  // dateField — какую дату считать "новизной": для обычных зон это дата
+  // создания, а для "Готово" осмысленнее дата, когда ролик стал готовым
+  // (doneAt); если у старого ролика doneAt ещё не проставлен — откатываемся
+  // на createdAt, чтобы он не улетал в конец списка без причины
+  function sortVideos(list, sortId, dateField) {
+    const field = dateField || 'createdAt';
+    const dateOf = (v) => v[field] || v.createdAt || 0;
     const arr = list.slice();
-    if (sortId === 'new') arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    else if (sortId === 'old') arr.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    if (sortId === 'new') arr.sort((a, b) => dateOf(b) - dateOf(a));
+    else if (sortId === 'old') arr.sort((a, b) => dateOf(a) - dateOf(b));
     else if (sortId === 'az') arr.sort((a, b) => (a.titleDe || '').localeCompare(b.titleDe || '', 'de'));
     else if (sortId === 'group') {
       arr.sort((a, b) => {
         const ga = groups.findIndex((g) => g.id === a.groupId);
         const gb = groups.findIndex((g) => g.id === b.groupId);
         if (ga !== gb) return ga - gb;
-        return (b.createdAt || 0) - (a.createdAt || 0);
+        return dateOf(b) - dateOf(a);
       });
     }
     return arr;
@@ -603,7 +605,7 @@
   function render() {
     const current = sortVideos(videos.filter((v) => !v.done && v.inProcess && matchesFilter(v)), currentSort);
     const active = sortVideos(videos.filter((v) => !v.done && !v.inProcess && matchesFilter(v)), activeSort);
-    const done = sortVideos(videos.filter((v) => v.done && matchesFilter(v)), doneSort);
+    const done = sortVideos(videos.filter((v) => v.done && matchesFilter(v)), doneSort, 'doneAt');
 
     currentGrid.innerHTML = current.map((v, i) => cardHtml(v, isFirstRender ? i * 45 : null)).join('');
     activeGrid.innerHTML = active.map((v, i) => cardHtml(v, isFirstRender ? i * 45 : null)).join('');
@@ -1218,7 +1220,8 @@
     const centerY = oldRect.top + oldRect.height / 2;
 
     video.done = !video.done;
-    updateVideoDone(id, video.done);
+    if (video.done) video.doneAt = Date.now();
+    updateVideoRow(video);
 
     if (video.done) { spawnConfetti(centerX, centerY); AudioFX.success(); }
     else { AudioFX.undo(); }
@@ -1358,7 +1361,7 @@
     if (cardEl) toggleDone(openVideoId, cardEl);
     else {
       const v = videos.find((x) => x.id === openVideoId);
-      if (v) { v.done = modalDoneCheckbox.checked; updateVideoDone(v.id, v.done); render(); }
+      if (v) { v.done = modalDoneCheckbox.checked; if (v.done) v.doneAt = Date.now(); updateVideoRow(v); render(); }
     }
   });
 

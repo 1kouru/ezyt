@@ -368,9 +368,9 @@
     return (text || '').trim().split(/\s+/).filter(Boolean).length;
   }
 
-  // ~300 слов/мин — под этот темп 40 минут выходит примерно на 11 500-12 000 слов
+  // ~143 слова/мин — калибровка по факту: 6150 слов ≈ 43 минуты озвучки
   function estimateMinutes(text) {
-    return Math.max(1, Math.round(wordCount(text) / 300));
+    return Math.max(1, Math.round(wordCount(text) / 143));
   }
 
   // промт для генерации текста ролика — название и суть подставляются, если

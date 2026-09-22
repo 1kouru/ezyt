@@ -362,6 +362,11 @@
 
   // промт для генерации текста ролика — название и суть подставляются, если
   // они уже заполнены, иначе на их месте остаются сами метки как есть
+  function thumbnailPromptTemplateFor(titleDe) {
+    const title = (titleDe || '').trim() || '[название]';
+    return `по теме ${title} сделай превью отражающее суть, но при этом без текста, и используй жёлтую стрелку и красный круг на персонажах. сделай чтобы людям хотелось нажать`;
+  }
+
   function scriptPromptFor(titleDe, summaryRu) {
     const title = (titleDe || '').trim() || '[название]';
     const summary = (summaryRu || '').trim() || '[суть]';
@@ -1331,6 +1336,11 @@
     if (!v) return;
     copyText(scriptPromptFor(v.titleDe, v.summaryRu), e.currentTarget, 'Промт скопирован — вставь в чат с ИИ');
   });
+  document.getElementById('copyThumbPromptTemplateBtn').addEventListener('click', (e) => {
+    const v = videos.find((x) => x.id === openVideoId);
+    if (!v) return;
+    copyText(thumbnailPromptTemplateFor(v.titleDe), e.currentTarget, 'Шаблон промта для обложки скопирован');
+  });
   document.getElementById('pasteScriptBtn').addEventListener('click', () => {
     pasteIntoScript((text) => {
       const v = videos.find((x) => x.id === openVideoId);
@@ -1517,6 +1527,9 @@
 
   document.getElementById('fieldScriptPromptBtn').addEventListener('click', (e) => {
     copyText(scriptPromptFor(fields.titleDe.value, fields.summaryRu.value), e.currentTarget, 'Промт скопирован — вставь в чат с ИИ');
+  });
+  document.getElementById('fieldThumbPromptTemplateBtn').addEventListener('click', (e) => {
+    copyText(thumbnailPromptTemplateFor(fields.titleDe.value), e.currentTarget, 'Шаблон промта для обложки скопирован');
   });
   document.getElementById('fieldScriptPasteBtn').addEventListener('click', () => {
     pasteIntoScript((text) => { fields.script.value = text; });

@@ -826,6 +826,7 @@ body {
 .copy-btn:hover { color: var(--blue); border-color: var(--border-strong); }
 .copy-btn:active { transform: scale(.92); }
 .copy-btn.is-copied { color: var(--blue); border-color: var(--blue); }
+.copy-btn--icon { padding: 4px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
 .tags-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-chip { font-size: 11.5px; font-weight: 600; color: var(--text-dim); background: var(--bg-soft); border: 1px solid var(--border); padding: 4px 10px; border-radius: 20px; }

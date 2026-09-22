@@ -353,6 +353,9 @@
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><circle cx="8.5" cy="10" r="1.5" fill="currentColor"/><path d="M5 17L9.5 12.5L13 15.5L16 12L19 15" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
             </span>
             <h3>Промт для обложки</h3>
+            <button type="button" class="copy-btn copy-btn--icon" id="copyThumbPromptTemplateBtn" title="Скопировать шаблон промта для обложки">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M16 8V6C16 4.9 15.1 4 14 4H6C4.9 4 4 4.9 4 6V14C4 15.1 4.9 16 6 16H8" stroke="currentColor" stroke-width="1.7"/></svg>
+            </button>
             <button class="copy-btn" data-copy-target="modalThumbPrompt">Копировать</button>
           </div>
           <p class="field-tile-text mono" id="modalThumbPrompt"></p>
@@ -457,6 +460,11 @@
         </label>
 
         <label>Промт для обложки
+          <div class="script-prompt-actions">
+            <button type="button" class="bulk-paste-trigger bulk-paste-trigger--square" id="fieldThumbPromptTemplateBtn" title="Скопировать шаблон промта для обложки">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M16 8V6C16 4.9 15.1 4 14 4H6C4.9 4 4 4.9 4 6V14C4 15.1 4.9 16 6 16H8" stroke="currentColor" stroke-width="1.7"/></svg>
+            </button>
+          </div>
           <textarea id="fieldThumbPrompt" rows="3" placeholder="cinematic dramatic portrait, …"></textarea>
         </label>
 
